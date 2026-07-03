@@ -1,0 +1,20 @@
+rules_version = '2';
+
+/**
+ * Firestore Security Rules for PRO SYNAPSE - DEVELOPMENT MODE
+ * 
+ * ⚠️ WARNING: These rules allow unrestricted access for development/testing.
+ * For production, use the more restrictive rules in firestore.rules.production
+ */
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // DEVELOPMENT MODE: Allow all read/write operations
+    // This is suitable for CAPSTONE demo and development
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}
+
+// To restore production security rules later, see firestore.rules.production

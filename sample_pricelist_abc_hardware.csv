@@ -1,0 +1,71 @@
+Supplier Code,Description,Price,UOM
+HW-HAM-001,Heavy Duty Hammer 16oz with Rubber Grip,285.00,PCS
+HW-HAM-002,Claw Hammer 20oz Steel Handle,320.00,PCS
+HW-SCR-001,Screwdriver Set 10-Piece Phillips and Flathead,450.00,SET
+HW-SCR-002,Precision Screwdriver Set 6-Piece Electronics,285.00,SET
+HW-WRN-001,Adjustable Wrench 8 inch Chrome Plated,195.00,PCS
+HW-WRN-002,Socket Wrench Set 40-Piece with Ratchet,1250.00,SET
+HW-PLR-001,Long Nose Pliers 8 inch Insulated Handle,185.00,PCS
+HW-PLR-002,Cutting Pliers 6 inch Heavy Duty,165.00,PCS
+HW-TAP-001,Measuring Tape 5M Steel Blade Auto-Lock,125.00,PCS
+HW-TAP-002,Measuring Tape 10M Heavy Duty Construction,245.00,PCS
+HW-LEV-001,Spirit Level 24 inch Aluminum Frame,385.00,PCS
+HW-LEV-002,Torpedo Level 9 inch Magnetic Base,195.00,PCS
+PT-DRL-001,Cordless Power Drill 18V with 2 Batteries,3850.00,SET
+PT-DRL-002,Hammer Drill 13mm 600W Variable Speed,2650.00,PCS
+PT-SAW-001,Circular Saw 7.25 inch 1800W Electric,4200.00,PCS
+PT-SAW-002,Jigsaw Variable Speed 650W with Laser Guide,2850.00,PCS
+PT-GRN-001,Angle Grinder 4 inch 850W Heavy Duty,2150.00,PCS
+PT-GRN-002,Angle Grinder 9 inch 2200W Industrial,4850.00,PCS
+PT-SND-001,Orbital Sander 240W with Dust Collection,1850.00,PCS
+PT-SND-002,Belt Sander 900W Heavy Duty Professional,3450.00,PCS
+EL-WIR-001,Electrical Wire 2.5mm THHN 100M Roll,1250.00,ROLL
+EL-WIR-002,Electrical Wire 3.5mm THHN 100M Roll,1850.00,ROLL
+EL-OUT-001,Wall Outlet 2-Gang Universal with Ground,45.00,PCS
+EL-OUT-002,Wall Outlet 3-Gang Heavy Duty Industrial,75.00,PCS
+EL-SWT-001,Light Switch Single Gang with Pilot Light,35.00,PCS
+EL-SWT-002,Light Switch 3-Way Illuminated,55.00,PCS
+EL-BRK-001,Circuit Breaker 20A Single Pole,125.00,PCS
+EL-BRK-002,Circuit Breaker 30A Double Pole,285.00,PCS
+EL-CON-001,Conduit PVC 20mm 3M Length,85.00,PCS
+EL-CON-002,Conduit Metal EMT 25mm 3M Length,165.00,PCS
+PL-PIP-001,PVC Pipe 1/2 inch Schedule 40 3M,125.00,PCS
+PL-PIP-002,PVC Pipe 3/4 inch Schedule 40 3M,185.00,PCS
+PL-ELB-001,PVC Elbow 1/2 inch 90 Degree,12.00,PCS
+PL-ELB-002,PVC Elbow 3/4 inch 90 Degree,18.00,PCS
+PL-FTC-001,Faucet Kitchen Single Handle Chrome,1250.00,PCS
+PL-FTC-002,Faucet Bathroom Basin Dual Handle,850.00,PCS
+PL-DRN-001,Floor Drain Stainless Steel 4 inch,385.00,PCS
+PL-DRN-002,Shower Drain Linear 12 inch Modern,1450.00,PCS
+PL-VAL-001,Ball Valve 1/2 inch Brass with Handle,95.00,PCS
+PL-VAL-002,Ball Valve 3/4 inch Heavy Duty Brass,145.00,PCS
+PN-LAT-001,Latex Paint White 4L Interior Matte,485.00,GAL
+PN-LAT-002,Latex Paint Beige 4L Interior Eggshell,525.00,GAL
+PN-OIL-001,Oil-Based Paint White 4L Exterior Gloss,685.00,GAL
+PN-OIL-002,Oil-Based Paint Gray 4L Exterior Semi-Gloss,725.00,GAL
+PN-PRM-001,Paint Primer 4L Interior White Water-Based,395.00,GAL
+PN-PRM-002,Paint Primer 4L Exterior Oil-Based,545.00,GAL
+PN-BRS-001,Paint Brush 2 inch Synthetic Bristle,85.00,PCS
+PN-BRS-002,Paint Brush 4 inch Professional Quality,145.00,PCS
+PN-ROL-001,Paint Roller 9 inch with Frame and Cover,125.00,SET
+PN-ROL-002,Paint Roller 12 inch Heavy Duty Professional,185.00,SET
+SF-GLV-001,Safety Gloves Leather Palm Size L,125.00,PAIR
+SF-GLV-002,Safety Gloves Cut-Resistant Level 5,285.00,PAIR
+SF-GLS-001,Safety Glasses Clear Anti-Fog Coating,95.00,PCS
+SF-GLS-002,Safety Goggles Chemical Splash Protection,185.00,PCS
+SF-MSK-001,Dust Mask N95 Respirator Box of 20,385.00,BOX
+SF-MSK-002,Half Face Respirator with Cartridges,1250.00,SET
+SF-HAT-001,Hard Hat ANSI Approved Yellow,285.00,PCS
+SF-HAT-002,Hard Hat Full Brim with Ratchet Suspension,385.00,PCS
+SF-VES-001,Safety Vest High Visibility Orange Size L,145.00,PCS
+SF-VES-002,Safety Vest Class 3 Reflective with Pockets,285.00,PCS
+FS-SCR-001,Wood Screws 2 inch Phillips Drive Box 100,125.00,BOX
+FS-SCR-002,Drywall Screws 1.5 inch Coarse Thread Box 200,145.00,BOX
+FS-NLS-001,Common Nails 3 inch Steel 5kg Box,185.00,BOX
+FS-NLS-002,Finishing Nails 2 inch Galvanized 2kg Box,125.00,BOX
+FS-BLT-001,Hex Bolts M10x50mm Zinc Plated Box 50,165.00,BOX
+FS-BLT-002,Carriage Bolts M12x75mm Galvanized Box 25,185.00,BOX
+FS-WAS-001,Flat Washers M10 Zinc Plated Box 100,45.00,BOX
+FS-WAS-002,Lock Washers M12 Split Type Box 100,55.00,BOX
+FS-NUT-001,Hex Nuts M10 Zinc Plated Box 100,65.00,BOX
+FS-NUT-002,Nylon Lock Nuts M12 Box 50,95.00,BOX

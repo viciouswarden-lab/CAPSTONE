@@ -1,0 +1,620 @@
+---
+/**
+ * Receiving Detail Page
+ * 
+ * Displays details of a specific receiving record including line items,
+ * variance information, and completion status. Allows users to complete
+ * pending receiving records which triggers atomic inventory updates.
+ * 
+ * Requirements: 9.3, 9.5, 9.6
+ * Task: 29.3
+ */
+
+import MainLayout from '../../layouts/MainLayout.astro';
+import ErrorMessage from '../../components/ErrorMessage.astro';
+import LoadingSpinner from '../../components/LoadingSpinner.astro';
+import { receivingService } from '../../services/receiving';
+import { supplierService } from '../../services/suppliers';
+import { productService } from '../../services/products';
+import type { ReceivingRecord } from '../../types/models';
+import type { Supplier, Product } from '../../types/models';
+
+const { id } = Astro.params;
+
+let receivingRecord: ReceivingRecord | null = null;
+let supplier: Supplier | null = null;
+let products: Map<string, Product> = new Map();
+let error: string | null = null;
+let isLoading = true;
+
+if (!id) {
+  error = 'Receiving ID is required';
+  isLoading = false;
+} else {
+  try {
+    // Get receiving record
+    receivingRecord = await receivingService.getReceivingById(id);
+    
+    // Get supplier information
+    supplier = await supplierService.getSupplierById(receivingRecord.supplierId);
+    
+    // Get product information for all line items
+    const productPromises = receivingRecord.lineItems.map(item => 
+      productService.getProductBySKU(item.sku).catch(() => null)
+    );
+    const productResults = await Promise.all(productPromises);
+    
+    productResults.forEach((product, index) => {
+      if (product) {
+        const sku = receivingRecord!.lineItems[index].sku;
+        products.set(sku, product);
+      }
+    });
+    
+    isLoading = false;
+  } catch (err) {
+    isLoading = false;
+    error = err instanceof Error ? err.message : 'Failed to load receiving record';
+    console.error('Error loading receiving record:', err);
+  }
+}
+
+// Calculate variances for display - Requirement 9.5
+const lineItemsWithVariance = receivingRecord?.lineItems.map(item => {
+  let hasVariance = false;
+  let variancePercentage = 0;
+  let varianceDisplay = '';
+  
+  if (item.expectedQuantity !== undefined && item.expectedQuantity !== null && item.expectedQuantity > 0) {
+    const variance = Math.abs(item.quantity - item.expectedQuantity);
+    variancePercentage = variance / item.expectedQuantity;
+    hasVariance = variancePercentage > 0.05; // 5% threshold
+    
+    if (hasVariance) {
+      const diff = item.quantity - item.expectedQuantity;
+      varianceDisplay = `${diff > 0 ? '+' : ''}${diff} (${(variancePercentage * 100).toFixed(1)}%)`;
+    }
+  }
+  
+  return {
+    ...item,
+    hasVariance,
+    variancePercentage,
+    varianceDisplay,
+    product: products.get(item.sku),
+  };
+}) || [];
+
+const hasAnyVariance = lineItemsWithVariance.some(item => item.hasVariance);
+const totalQuantity = receivingRecord?.lineItems.reduce((sum, item) => sum + item.quantity, 0) || 0;
+
+// Format date helper
+const formatDate = (date: Date) => {
+  return new Date(date).toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+};
+
+const formatShortDate = (date: Date) => {
+  return new Date(date).toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric'
+  });
+};
+---
+
+<MainLayout title={`Receiving Details - ${id || 'Unknown'}`} requireAuth={true} requiredRole="Clerk">
+  <!-- Page Header -->
+  <div class="page-header mb-6">
+    <div class="flex items-center justify-between">
+      <div>
+        <h1 class="text-3xl font-bold text-gray-900">Receiving Details</h1>
+        <p class="text-gray-600 mt-1">View and complete receiving record</p>
+      </div>
+      <div>
+        <a 
+          href="/receiving" 
+          class="button bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700 transition-colors font-medium"
+        >
+          ← Back to Receiving
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Error Display -->
+  {error && (
+    <div class="mb-6">
+      <ErrorMessage 
+        message={error}
+        type="error"
+        dismissable={false}
+      />
+    </div>
+  )}
+
+  <!-- Loading State -->
+  {isLoading && (
+    <LoadingSpinner 
+      size="lg"
+      message="Loading receiving record..."
+    />
+  )}
+
+  <!-- Receiving Record Details -->
+  {!isLoading && !error && receivingRecord && (
+    <div class="space-y-6">
+      <!-- Variance Alert Banner - Requirement 9.5 -->
+      {hasAnyVariance && (
+        <div class="variance-banner bg-yellow-50 border-l-4 border-yellow-400 p-4">
+          <div class="flex items-start">
+            <div class="flex-shrink-0">
+              <svg class="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+              </svg>
+            </div>
+            <div class="ml-3">
+              <h3 class="text-sm font-medium text-yellow-800">
+                Quantity Variance Detected
+              </h3>
+              <div class="mt-2 text-sm text-yellow-700">
+                <p>Some line items have quantity discrepancies exceeding 5%. Review these items carefully before completing.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <!-- Status Banner -->
+      <div class={`status-banner p-4 rounded-lg ${receivingRecord.status === 'completed' ? 'bg-green-50 border border-green-200' : 'bg-blue-50 border border-blue-200'}`}>
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-lg font-semibold" class:list={[receivingRecord.status === 'completed' ? 'text-green-800' : 'text-blue-800']}>
+              {receivingRecord.status === 'completed' ? '✓ Completed' : '⏳ Pending'}
+            </h2>
+            <p class="text-sm" class:list={[receivingRecord.status === 'completed' ? 'text-green-700' : 'text-blue-700']}>
+              {receivingRecord.status === 'completed' 
+                ? 'This receiving has been completed and inventory has been updated.' 
+                : 'This receiving is pending completion. Click "Complete Receiving" to finalize and update inventory.'}
+            </p>
+          </div>
+          
+          <!-- Complete Receiving Button - Only show for pending status, Requirement 9.3 -->
+          {receivingRecord.status === 'pending' && (
+            <button
+              id="completeReceivingBtn"
+              class="button bg-green-600 text-white px-6 py-3 rounded-md hover:bg-green-700 transition-colors font-medium shadow-md hover:shadow-lg"
+            >
+              Complete Receiving
+            </button>
+          )}
+        </div>
+      </div>
+
+      <!-- Basic Information Card -->
+      <div class="card bg-white rounded-lg shadow-md p-6">
+        <h3 class="text-xl font-semibold text-gray-900 mb-4 border-b pb-2">Basic Information</h3>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="info-row">
+            <span class="info-label text-gray-600 font-medium">Receiving ID:</span>
+            <span class="info-value text-gray-900">{receivingRecord.receivingId}</span>
+          </div>
+          
+          <div class="info-row">
+            <span class="info-label text-gray-600 font-medium">Status:</span>
+            <span class:list={[
+              'info-value font-semibold px-3 py-1 rounded-full text-sm',
+              receivingRecord.status === 'completed' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+            ]}>
+              {receivingRecord.status === 'completed' ? '✓ Completed' : '⏳ Pending'}
+            </span>
+          </div>
+          
+          <div class="info-row">
+            <span class="info-label text-gray-600 font-medium">Supplier:</span>
+            <span class="info-value text-gray-900">{supplier?.name || receivingRecord.supplierId}</span>
+          </div>
+          
+          <div class="info-row">
+            <span class="info-label text-gray-600 font-medium">Receiving Date:</span>
+            <span class="info-value text-gray-900">{formatShortDate(receivingRecord.receivingDate)}</span>
+          </div>
+          
+          <div class="info-row">
+            <span class="info-label text-gray-600 font-medium">Document Type:</span>
+            <span class="info-value">
+              <span class:list={[
+                'px-2 py-1 rounded text-xs font-medium',
+                receivingRecord.documentType === 'invoice' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'
+              ]}>
+                {receivingRecord.documentType === 'invoice' ? '📄 Invoice' : '📦 Delivery Receipt'}
+              </span>
+            </span>
+          </div>
+          
+          <div class="info-row">
+            <span class="info-label text-gray-600 font-medium">Total Items:</span>
+            <span class="info-value text-gray-900">{receivingRecord.lineItems.length}</span>
+          </div>
+          
+          <div class="info-row">
+            <span class="info-label text-gray-600 font-medium">Total Quantity:</span>
+            <span class="info-value text-gray-900 font-bold">{totalQuantity}</span>
+          </div>
+          
+          <div class="info-row">
+            <span class="info-label text-gray-600 font-medium">Variance Alert:</span>
+            <span class="info-value">
+              <span class:list={[
+                'px-3 py-1 rounded-full text-xs font-medium',
+                hasAnyVariance ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-600'
+              ]}>
+                {hasAnyVariance ? '⚠ Has Variance' : '✓ No Variance'}
+              </span>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Line Items Card -->
+      <div class="card bg-white rounded-lg shadow-md p-6">
+        <h3 class="text-xl font-semibold text-gray-900 mb-4 border-b pb-2">Line Items</h3>
+        
+        <div class="overflow-x-auto">
+          <table class="w-full">
+            <thead class="bg-gray-50 border-b-2 border-gray-200">
+              <tr>
+                <th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">SKU</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Description</th>
+                <th class="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider">Expected</th>
+                <th class="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider">Received</th>
+                <th class="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider">Variance</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Location</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-200">
+              {lineItemsWithVariance.map((item) => (
+                <tr class:list={[
+                  'hover:bg-gray-50 transition-colors',
+                  item.hasVariance ? 'bg-red-50' : ''
+                ]}>
+                  <td class="px-4 py-3 text-sm font-mono text-gray-900">{item.sku}</td>
+                  <td class="px-4 py-3 text-sm text-gray-900">{item.product?.description || 'Unknown Product'}</td>
+                  <td class="px-4 py-3 text-center text-sm text-gray-700">
+                    {item.expectedQuantity !== undefined && item.expectedQuantity !== null ? item.expectedQuantity : '—'}
+                  </td>
+                  <td class="px-4 py-3 text-center text-sm font-bold text-gray-900">{item.quantity}</td>
+                  <td class="px-4 py-3 text-center text-sm">
+                    {item.hasVariance ? (
+                      <span class="px-2 py-1 bg-red-100 text-red-800 rounded-full text-xs font-bold">
+                        {item.varianceDisplay}
+                      </span>
+                    ) : (
+                      <span class="text-gray-500">—</span>
+                    )}
+                  </td>
+                  <td class="px-4 py-3 text-sm text-gray-700">{item.locationId}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        
+        {receivingRecord.lineItems.length === 0 && (
+          <div class="text-center py-8 text-gray-500">
+            <p>No line items in this receiving record.</p>
+          </div>
+        )}
+      </div>
+    </div>
+  )}
+
+  <!-- Completion Confirmation Modal -->
+  <div id="confirmationModal" class="modal hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="modal-content bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+      <h3 class="text-xl font-bold text-gray-900 mb-4">Complete Receiving?</h3>
+      <p class="text-gray-700 mb-6">
+        This action will finalize the receiving record and update inventory quantities atomically. 
+        {hasAnyVariance && (
+          <span class="text-yellow-800 font-semibold">
+            Note: This receiving has variance alerts.
+          </span>
+        )}
+      </p>
+      
+      <div class="flex justify-end gap-4">
+        <button
+          id="cancelBtn"
+          class="button bg-gray-200 text-gray-700 px-6 py-2 rounded-md hover:bg-gray-300 transition-colors font-medium"
+        >
+          Cancel
+        </button>
+        <button
+          id="confirmBtn"
+          class="button bg-green-600 text-white px-6 py-2 rounded-md hover:bg-green-700 transition-colors font-medium"
+        >
+          Confirm
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading Overlay -->
+  <div id="loadingOverlay" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="bg-white rounded-lg p-8 text-center">
+      <div class="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mb-4"></div>
+      <p class="text-gray-700 font-medium">Completing receiving and updating inventory...</p>
+    </div>
+  </div>
+
+  <!-- Success Message -->
+  <div id="successMessage" class="hidden fixed top-4 right-4 bg-green-100 border-l-4 border-green-500 p-4 rounded shadow-lg z-50 max-w-md">
+    <div class="flex items-start">
+      <div class="flex-shrink-0">
+        <svg class="h-5 w-5 text-green-500" viewBox="0 0 20 20" fill="currentColor">
+          <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+        </svg>
+      </div>
+      <div class="ml-3">
+        <p class="text-sm font-medium text-green-800" id="successMessageText"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Client-side JavaScript for completion workflow -->
+  <script define:vars={{ receivingId: receivingRecord?.receivingId }}>
+    const completeBtn = document.getElementById('completeReceivingBtn');
+    const confirmationModal = document.getElementById('confirmationModal');
+    const confirmBtn = document.getElementById('confirmBtn');
+    const cancelBtn = document.getElementById('cancelBtn');
+    const loadingOverlay = document.getElementById('loadingOverlay');
+    const successMessage = document.getElementById('successMessage');
+    const successMessageText = document.getElementById('successMessageText');
+
+    /**
+     * Show confirmation modal
+     */
+    function showConfirmationModal() {
+      if (confirmationModal) {
+        confirmationModal.classList.remove('hidden');
+      }
+    }
+
+    /**
+     * Hide confirmation modal
+     */
+    function hideConfirmationModal() {
+      if (confirmationModal) {
+        confirmationModal.classList.add('hidden');
+      }
+    }
+
+    /**
+     * Show loading overlay
+     */
+    function showLoading() {
+      if (loadingOverlay) {
+        loadingOverlay.classList.remove('hidden');
+      }
+    }
+
+    /**
+     * Hide loading overlay
+     */
+    function hideLoading() {
+      if (loadingOverlay) {
+        loadingOverlay.classList.add('hidden');
+      }
+    }
+
+    /**
+     * Show success message
+     */
+    function showSuccess(message) {
+      if (successMessage && successMessageText) {
+        successMessageText.textContent = message;
+        successMessage.classList.remove('hidden');
+        
+        // Auto-hide after 3 seconds
+        setTimeout(() => {
+          successMessage.classList.add('hidden');
+        }, 3000);
+      }
+    }
+
+    /**
+     * Complete the receiving record
+     * Calls POST /api/receiving/[id]/complete
+     */
+    async function completeReceiving() {
+      hideConfirmationModal();
+      showLoading();
+
+      try {
+        const response = await fetch(`/api/receiving/${encodeURIComponent(receivingId)}/complete`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result.error?.message || 'Failed to complete receiving');
+        }
+
+        hideLoading();
+        
+        // Show success message
+        showSuccess(result.message || 'Receiving completed successfully!');
+        
+        // Reload page after short delay to show updated status
+        setTimeout(() => {
+          window.location.reload();
+        }, 1500);
+
+      } catch (error) {
+        hideLoading();
+        console.error('Error completing receiving:', error);
+        alert(`Error: ${error.message}`);
+      }
+    }
+
+    // Attach event listeners
+    if (completeBtn) {
+      completeBtn.addEventListener('click', showConfirmationModal);
+    }
+
+    if (confirmBtn) {
+      confirmBtn.addEventListener('click', completeReceiving);
+    }
+
+    if (cancelBtn) {
+      cancelBtn.addEventListener('click', hideConfirmationModal);
+    }
+
+    // Close modal on background click
+    if (confirmationModal) {
+      confirmationModal.addEventListener('click', (e) => {
+        if (e.target === confirmationModal) {
+          hideConfirmationModal();
+        }
+      });
+    }
+
+    // Close modal on Escape key
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && confirmationModal && !confirmationModal.classList.contains('hidden')) {
+        hideConfirmationModal();
+      }
+    });
+  </script>
+
+  <style>
+    .page-header {
+      border-bottom: 2px solid var(--color-border);
+      padding-bottom: 1rem;
+    }
+
+    .info-row {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .info-label {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .info-value {
+      font-size: 1rem;
+    }
+
+    .variance-banner {
+      animation: slideDown 0.3s ease-out;
+    }
+
+    @keyframes slideDown {
+      from {
+        opacity: 0;
+        transform: translateY(-10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .status-banner {
+      animation: fadeIn 0.3s ease-out;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+      }
+      to {
+        opacity: 1;
+      }
+    }
+
+    .button {
+      transition: all 0.2s;
+      cursor: pointer;
+    }
+
+    .button:hover {
+      transform: translateY(-1px);
+    }
+
+    .button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .modal-content {
+      animation: modalSlideIn 0.3s ease-out;
+    }
+
+    @keyframes modalSlideIn {
+      from {
+        opacity: 0;
+        transform: translateY(-20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    table {
+      border-collapse: separate;
+      border-spacing: 0;
+    }
+
+    table thead tr th:first-child {
+      border-top-left-radius: 0.5rem;
+    }
+
+    table thead tr th:last-child {
+      border-top-right-radius: 0.5rem;
+    }
+
+    /* Responsive adjustments */
+    @media (max-width: 768px) {
+      .page-header .flex {
+        flex-direction: column;
+        gap: 1rem;
+        align-items: flex-start;
+      }
+
+      .page-header .button {
+        width: 100%;
+        text-align: center;
+      }
+
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      table {
+        font-size: 0.875rem;
+      }
+
+      table th,
+      table td {
+        padding: 0.5rem;
+      }
+    }
+  </style>
+</MainLayout>

@@ -1,0 +1,1455 @@
+---
+/**
+ * Point of Sale (POS) Page - Client-Side Functional
+ * 
+ * Features:
+ * - Real product lookup from Firestore
+ * - Shopping cart management
+ * - Simulated payment processing (no real transactions)
+ * - Updates inventory on "payment"
+ * - Creates transaction records
+ * - Shows in audit logs
+ */
+
+import ModernLayout from '../../layouts/ModernLayout.astro';
+
+Astro.response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+---
+
+<ModernLayout title="Point of Sale">
+  <div class="pos-page">
+    <!-- Page Header -->
+    <div class="page-header">
+      <div>
+        <h1>
+          <span class="material-symbols-outlined">point_of_sale</span>
+          Point of Sale
+        </h1>
+        <p class="subtitle">Fast checkout and inventory management</p>
+      </div>
+      <div class="page-actions">
+        <button class="btn btn-secondary" id="view-transactions-btn">
+          <span class="material-symbols-outlined">receipt_long</span>
+          Transactions
+        </button>
+        <button class="btn btn-secondary" id="clear-all-btn">
+          <span class="material-symbols-outlined">refresh</span>
+          New Sale
+        </button>
+      </div>
+    </div>
+
+    <!-- Stats Row -->
+    <div class="stats-grid" id="stats-grid">
+      <div class="stat-card">
+        <span class="material-symbols-outlined stat-icon" style="color: #10b981;">payments</span>
+        <div class="stat-label">Today's Sales</div>
+        <div class="stat-value" id="today-sales">₱0.00</div>
+      </div>
+      <div class="stat-card">
+        <span class="material-symbols-outlined stat-icon" style="color: #3b82f6;">receipt</span>
+        <div class="stat-label">Transactions</div>
+        <div class="stat-value" id="today-transactions">0</div>
+      </div>
+      <div class="stat-card">
+        <span class="material-symbols-outlined stat-icon" style="color: #f59e0b;">shopping_cart</span>
+        <div class="stat-label">Cart Items</div>
+        <div class="stat-value" id="cart-items">0</div>
+      </div>
+      <div class="stat-card">
+        <span class="material-symbols-outlined stat-icon" style="color: #8b5cf6;">trending_up</span>
+        <div class="stat-label">Cart Total</div>
+        <div class="stat-value" id="cart-total">₱0.00</div>
+      </div>
+    </div>
+
+    <!-- Main POS Interface -->
+    <div class="pos-grid">
+      <!-- Left: Product Lookup & Cart -->
+      <div class="pos-left">
+        <!-- Product Search -->
+        <div class="card">
+          <div class="card-header">
+            <h2>Product Lookup</h2>
+          </div>
+          <div class="card-body">
+            <div class="search-bar">
+              <div class="search-input-wrapper">
+                <span class="material-symbols-outlined search-icon">search</span>
+                <input type="text" id="sku-input" class="search-input" 
+                       placeholder="Search by SKU or product name..." 
+                       autocomplete="off" autofocus />
+                <div id="search-dropdown" class="search-dropdown hidden"></div>
+              </div>
+            </div>
+
+            <!-- Product Display -->
+            <div id="product-display" class="product-display hidden">
+              <div class="product-info">
+                <div class="product-name" id="product-name"></div>
+                <div class="product-sku" id="product-sku"></div>
+                <div class="product-price" id="product-price"></div>
+                <div class="product-stock" id="product-stock"></div>
+              </div>
+              <div class="add-to-cart-section">
+                <input type="number" id="quantity-input" class="quantity-input" 
+                       value="1" min="1" />
+                <button class="btn btn-success" id="add-to-cart-btn">
+                  <span class="material-symbols-outlined">add_shopping_cart</span>
+                  Add to Cart
+                </button>
+              </div>
+            </div>
+
+            <div id="product-empty" class="product-empty">
+              <span class="material-symbols-outlined">barcode_scanner</span>
+              <p>Search for a product by SKU or name</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Cart Items -->
+        <div class="card">
+          <div class="card-header">
+            <h2>Cart Items</h2>
+            <button class="btn btn-ghost" id="clear-cart-btn">Clear</button>
+          </div>
+          <div class="card-body">
+            <div id="cart-items-container">
+              <div class="cart-empty">
+                <span class="material-symbols-outlined">shopping_cart</span>
+                <p>No items in cart</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: Summary & Payment -->
+      <div class="pos-right">
+        <!-- Order Summary -->
+        <div class="card">
+          <div class="card-header">
+            <h2>Order Summary</h2>
+          </div>
+          <div class="card-body">
+            <div class="summary-row">
+              <span>Subtotal:</span>
+              <span class="summary-value" id="subtotal">₱0.00</span>
+            </div>
+            <div class="summary-row">
+              <span>Tax (0%):</span>
+              <span class="summary-value" id="tax">₱0.00</span>
+            </div>
+            <div class="summary-row total-row">
+              <span>Total:</span>
+              <span class="summary-total" id="total">₱0.00</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Payment Method -->
+        <div class="card">
+          <div class="card-header">
+            <h2>Payment Method</h2>
+          </div>
+          <div class="card-body">
+            <div class="payment-methods">
+              <button class="payment-btn active" data-method="cash">
+                <span class="material-symbols-outlined">payments</span>
+                Cash
+              </button>
+              <button class="payment-btn" data-method="card">
+                <span class="material-symbols-outlined">credit_card</span>
+                Card
+              </button>
+              <button class="payment-btn" data-method="gcash">
+                <span class="material-symbols-outlined">phone_android</span>
+                GCash
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Complete Transaction -->
+        <button class="btn btn-primary btn-large" id="complete-transaction-btn" disabled>
+          <span class="material-symbols-outlined">check_circle</span>
+          Complete Transaction
+        </button>
+      </div>
+    </div>
+
+    <!-- Recent Transactions Section -->
+    <div class="card" style="margin-top: 2rem;">
+      <div class="card-header">
+        <h2>Recent Transactions</h2>
+        <button class="btn btn-ghost" id="refresh-transactions-btn">
+          <span class="material-symbols-outlined">refresh</span>
+          Refresh
+        </button>
+      </div>
+      <div class="card-body">
+        <div id="transactions-loading" class="hidden" style="text-align: center; padding: 2rem; color: var(--text-secondary);">
+          <div class="spinner" style="margin: 0 auto 1rem;"></div>
+          Loading transactions...
+        </div>
+        <div id="transactions-empty" class="hidden" style="text-align: center; padding: 3rem; color: var(--text-secondary);">
+          <span class="material-symbols-outlined" style="font-size: 64px; opacity: 0.3;">receipt_long</span>
+          <p>No transactions yet today</p>
+        </div>
+        <div id="transactions-table-container" class="table-container hidden">
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Transaction ID</th>
+                <th>Items</th>
+                <th>Payment</th>
+                <th>Total</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="transactions-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Success Modal -->
+  <div id="success-modal" class="modal hidden">
+    <div class="modal-overlay"></div>
+    <div class="modal-content success-modal">
+      <div class="success-icon">
+        <span class="material-symbols-outlined">check_circle</span>
+      </div>
+      <h2>Transaction Complete!</h2>
+      <div class="transaction-details">
+        <div class="detail-row">
+          <span>Transaction ID:</span>
+          <span id="modal-txn-id" class="detail-value"></span>
+        </div>
+        <div class="detail-row">
+          <span>Total Amount:</span>
+          <span id="modal-amount" class="detail-value"></span>
+        </div>
+        <div class="detail-row">
+          <span>Payment Method:</span>
+          <span id="modal-method" class="detail-value"></span>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="close-modal-btn">Close</button>
+        <button class="btn btn-primary" id="print-receipt-btn">
+          <span class="material-symbols-outlined">print</span>
+          Print Receipt
+        </button>
+      </div>
+    </div>
+  </div>
+</ModernLayout>
+
+<script>
+  import { db } from '../../services/firebase';
+  import { collection, getDocs, query, where, orderBy, limit, limit as firestoreLimit, doc, getDoc, updateDoc, setDoc, Timestamp, runTransaction } from 'firebase/firestore';
+
+  const skuInput = document.getElementById('sku-input') as HTMLInputElement;
+  const searchDropdown = document.getElementById('search-dropdown')!;
+  const productDisplay = document.getElementById('product-display')!;
+  const productEmpty = document.getElementById('product-empty')!;
+  const quantityInput = document.getElementById('quantity-input') as HTMLInputElement;
+  const addToCartBtn = document.getElementById('add-to-cart-btn')!;
+  const cartItemsContainer = document.getElementById('cart-items-container')!;
+  const completeTransactionBtn = document.getElementById('complete-transaction-btn') as HTMLButtonElement;
+  const successModal = document.getElementById('success-modal')!;
+
+  let currentProduct: any = null;
+  let cart: any[] = [];
+  let selectedPaymentMethod = 'cash';
+  let allProducts: any[] = [];
+  let searchTimeout: any = null;
+
+  const formatCurrency = (value: number) => `₱${value.toFixed(2)}`;
+
+  const generateTransactionId = () => {
+    const date = new Date();
+    const year = date.getFullYear();
+    const random = Math.floor(Math.random() * 1000000);
+    return `TXN-${year}-${random.toString().padStart(6, '0')}`;
+  };
+
+  const loadAllProducts = async () => {
+    try {
+      const productsRef = collection(db!, 'products');
+      const q = query(productsRef, where('isActive', '==', true));
+      const snapshot = await getDocs(q);
+      
+      allProducts = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      
+      console.log(`Loaded ${allProducts.length} products for search`);
+    } catch (error) {
+      console.error('Error loading products:', error);
+    }
+  };
+
+  const searchProducts = (searchText: string) => {
+    if (!searchText || searchText.length < 2) {
+      searchDropdown.classList.add('hidden');
+      return;
+    }
+
+    const text = searchText.toLowerCase();
+    const filtered = allProducts.filter(p => 
+      p.sku?.toLowerCase().includes(text) || 
+      p.description?.toLowerCase().includes(text)
+    ).slice(0, 10);
+
+    if (filtered.length === 0) {
+      searchDropdown.classList.add('hidden');
+      return;
+    }
+
+    searchDropdown.innerHTML = filtered.map(p => `
+      <div class="search-result-item" data-sku="${p.sku}">
+        <div class="result-main">
+          <div class="result-name">${p.description}</div>
+          <div class="result-sku">${p.sku}</div>
+        </div>
+      </div>
+    `).join('');
+
+    searchDropdown.classList.remove('hidden');
+
+    // Add click handlers
+    searchDropdown.querySelectorAll('.search-result-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const sku = (item as HTMLElement).dataset.sku!;
+        skuInput.value = sku;
+        searchDropdown.classList.add('hidden');
+        lookupProduct(sku);
+      });
+    });
+  };
+
+  const lookupProduct = async (sku?: string) => {
+    const searchSku = sku || skuInput.value.trim().toUpperCase();
+    if (!searchSku) return;
+
+    searchDropdown.classList.add('hidden');
+
+    searchDropdown.classList.add('hidden');
+
+    try {
+      let product: any = null;
+      let productSKU = searchSku;
+
+      // Try Method 1: Lookup by document ID (for products created with SKU as ID)
+      const productRef = doc(db!, 'products', searchSku);
+      const productSnap = await getDoc(productRef);
+
+      if (productSnap.exists()) {
+        product = { id: productSnap.id, ...productSnap.data() };
+        productSKU = product.sku || searchSku;
+      } else {
+        // Method 2: Query by SKU field (for products with auto-generated IDs)
+        const productsRef = collection(db!, 'products');
+        const q = query(productsRef, where('sku', '==', searchSku), firestoreLimit(1));
+        const querySnapshot = await getDocs(q);
+
+        if (!querySnapshot.empty) {
+          const docSnap = querySnapshot.docs[0];
+          product = { id: docSnap.id, ...docSnap.data() };
+          productSKU = product.sku;
+        }
+      }
+
+      if (!product) {
+        alert(`Product ${searchSku} not found`);
+        return;
+      }
+
+      if (!product.isActive) {
+        alert('Product is inactive');
+        return;
+      }
+
+      // Get pricing - use the actual SKU from the product
+      const pricingRef = doc(db!, 'pricing', `${productSKU}_standard`);
+      const pricingSnap = await getDoc(pricingRef);
+      const price = pricingSnap.exists() ? pricingSnap.data().retailPrice : 0;
+
+      // Get inventory - use the actual SKU from the product
+      const inventoryRef = doc(db!, 'inventory', `${productSKU}_warehouse`);
+      const inventorySnap = await getDoc(inventoryRef);
+      const stock = inventorySnap.exists() ? inventorySnap.data().quantityOnHand : 0;
+
+      currentProduct = {
+        ...product,
+        sku: productSKU,
+        price,
+        stock
+      };
+
+      displayProduct(currentProduct);
+    } catch (error) {
+      console.error('Error:', error);
+      alert('Error looking up product');
+    }
+  };
+
+  const displayProduct = (product: any) => {
+    document.getElementById('product-name')!.textContent = product.description;
+    document.getElementById('product-sku')!.textContent = `SKU: ${product.sku}`;
+    document.getElementById('product-price')!.textContent = formatCurrency(product.price);
+    document.getElementById('product-stock')!.textContent = `Stock: ${product.stock} ${product.unitOfMeasure}`;
+
+    productEmpty.classList.add('hidden');
+    productDisplay.classList.remove('hidden');
+    quantityInput.value = '1';
+    quantityInput.max = product.stock.toString();
+  };
+
+  const addToCart = () => {
+    if (!currentProduct) return;
+
+    const quantity = parseInt(quantityInput.value);
+    if (quantity <= 0 || quantity > currentProduct.stock) {
+      alert('Invalid quantity');
+      return;
+    }
+
+    const existingItem = cart.find(item => item.sku === currentProduct.sku);
+    
+    if (existingItem) {
+      existingItem.quantity += quantity;
+      existingItem.subtotal = existingItem.quantity * existingItem.price;
+    } else {
+      cart.push({
+        sku: currentProduct.sku,
+        description: currentProduct.description,
+        price: currentProduct.price,
+        quantity,
+        subtotal: quantity * currentProduct.price,
+        unitOfMeasure: currentProduct.unitOfMeasure
+      });
+    }
+
+    renderCart();
+    updateSummary();
+    
+    // Clear product display
+    currentProduct = null;
+    skuInput.value = '';
+    productDisplay.classList.add('hidden');
+    productEmpty.classList.remove('hidden');
+    skuInput.focus();
+  };
+
+  const renderCart = () => {
+    if (cart.length === 0) {
+      cartItemsContainer.innerHTML = `
+        <div class="cart-empty">
+          <span class="material-symbols-outlined">shopping_cart</span>
+          <p>No items in cart</p>
+        </div>
+      `;
+      return;
+    }
+
+    cartItemsContainer.innerHTML = cart.map((item, index) => `
+      <div class="cart-item">
+        <div class="cart-item-info">
+          <div class="cart-item-name">${item.description}</div>
+          <div class="cart-item-sku">${item.sku}</div>
+          <div class="cart-item-price">${formatCurrency(item.price)} × ${item.quantity}</div>
+        </div>
+        <div class="cart-item-actions">
+          <div class="cart-item-subtotal">${formatCurrency(item.subtotal)}</div>
+          <button class="btn-icon btn-danger remove-item-btn" data-index="${index}">
+            <span class="material-symbols-outlined">delete</span>
+          </button>
+        </div>
+      </div>
+    `).join('');
+
+    // Attach remove buttons
+    document.querySelectorAll('.remove-item-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const index = parseInt((e.currentTarget as HTMLElement).dataset.index!);
+        cart.splice(index, 1);
+        renderCart();
+        updateSummary();
+      });
+    });
+  };
+
+  const updateSummary = () => {
+    const subtotal = cart.reduce((sum, item) => sum + item.subtotal, 0);
+    const tax = 0; // 0% tax
+    const total = subtotal + tax;
+
+    document.getElementById('subtotal')!.textContent = formatCurrency(subtotal);
+    document.getElementById('tax')!.textContent = formatCurrency(tax);
+    document.getElementById('total')!.textContent = formatCurrency(total);
+
+    // Update stats
+    document.getElementById('cart-items')!.textContent = cart.length.toString();
+    document.getElementById('cart-total')!.textContent = formatCurrency(total);
+
+    // Enable/disable complete button
+    completeTransactionBtn.disabled = cart.length === 0;
+  };
+
+  const completeTransaction = async () => {
+    if (cart.length === 0) return;
+
+    const confirmed = confirm(`Complete transaction with ${selectedPaymentMethod}?\n\nThis will:\n- Update inventory\n- Create transaction record\n- Add to audit log\n\nNote: This is a simulated payment (no real money transferred)`);
+    if (!confirmed) return;
+
+    (completeTransactionBtn as HTMLButtonElement).disabled = true;
+    completeTransactionBtn.innerHTML = '<span class="material-symbols-outlined spinning">refresh</span> Processing...';
+
+    try {
+      const transactionId = generateTransactionId();
+      const subtotal = cart.reduce((sum, item) => sum + item.subtotal, 0);
+      const tax = 0;
+      const total = subtotal + tax;
+
+      // Create transaction document
+      const transactionRef = doc(db!, 'pos_transactions', transactionId);
+      console.log('Creating transaction:', transactionId);
+      await setDoc(transactionRef, {
+        transactionId,
+        timestamp: Timestamp.now(),
+        items: cart.map(item => ({
+          sku: item.sku,
+          description: item.description,
+          quantity: item.quantity,
+          unitPrice: item.price,
+          subtotal: item.subtotal
+        })),
+        subtotal,
+        tax,
+        total,
+        paymentMethod: selectedPaymentMethod,
+        status: 'completed',
+        cashierId: 'demo-user',
+        locationId: 'warehouse'
+      });
+      console.log('Transaction created successfully');
+
+      // Update inventory for each item
+      for (const item of cart) {
+        const inventoryRef = doc(db!, 'inventory', `${item.sku}_warehouse`);
+        const inventorySnap = await getDoc(inventoryRef);
+        
+        if (inventorySnap.exists()) {
+          const currentQty = inventorySnap.data().quantityOnHand;
+          await updateDoc(inventoryRef, {
+            quantityOnHand: currentQty - item.quantity,
+            lastUpdated: Timestamp.now()
+          });
+        }
+
+        // Create inventory transaction log
+        const invTxnRef = doc(collection(db!, 'inventory_transactions'));
+        await setDoc(invTxnRef, {
+          transactionId: invTxnRef.id,
+          sku: item.sku,
+          locationId: 'warehouse',
+          transactionType: 'sale',
+          quantity: -item.quantity,
+          referenceId: transactionId,
+          performedBy: 'demo-user',
+          timestamp: Timestamp.now(),
+          notes: `POS Sale - ${transactionId}`
+        });
+      }
+
+      // Show success modal
+      document.getElementById('modal-txn-id')!.textContent = transactionId;
+      document.getElementById('modal-amount')!.textContent = formatCurrency(total);
+      document.getElementById('modal-method')!.textContent = selectedPaymentMethod.toUpperCase();
+      successModal.classList.remove('hidden');
+
+      // Clear cart
+      cart = [];
+      renderCart();
+      updateSummary();
+      
+      // Reload stats and transactions
+      await loadTodayStats();
+      await loadRecentTransactions();
+
+    } catch (error) {
+      console.error('Transaction error:', error);
+      alert(`Error: ${error instanceof Error ? error.message : 'Failed to complete transaction'}`);
+    } finally {
+      (completeTransactionBtn as HTMLButtonElement).disabled = false;
+      completeTransactionBtn.innerHTML = '<span class="material-symbols-outlined">check_circle</span> Complete Transaction';
+    }
+  };
+
+  const loadTodayStats = async () => {
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      const transactionsRef = collection(db!, 'pos_transactions');
+      // Simplified query - just filter by timestamp
+      const q = query(
+        transactionsRef,
+        where('timestamp', '>=', Timestamp.fromDate(today))
+      );
+      const snapshot = await getDocs(q);
+
+      let totalSales = 0;
+      let transactionCount = 0;
+
+      // Filter completed status in memory instead of query
+      snapshot.forEach(doc => {
+        const data = doc.data();
+        if (data.status === 'completed') {
+          totalSales += data.total || 0;
+          transactionCount++;
+        }
+      });
+
+      document.getElementById('today-sales')!.textContent = formatCurrency(totalSales);
+      document.getElementById('today-transactions')!.textContent = transactionCount.toString();
+    } catch (error) {
+      console.error('Error loading stats:', error);
+    }
+  };
+
+  const loadRecentTransactions = async () => {
+    const transactionsTbody = document.getElementById('transactions-tbody')!;
+    const transactionsTableContainer = document.getElementById('transactions-table-container')!;
+    const transactionsLoading = document.getElementById('transactions-loading')!;
+    const transactionsEmpty = document.getElementById('transactions-empty')!;
+
+    try {
+      transactionsLoading.classList.remove('hidden');
+      transactionsTbody.innerHTML = '';
+      transactionsTableContainer.classList.add('hidden');
+      transactionsEmpty.classList.add('hidden');
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      const transactionsRef = collection(db!, 'pos_transactions');
+      // Simplified query - just filter by timestamp, order by timestamp desc
+      const q = query(
+        transactionsRef,
+        where('timestamp', '>=', Timestamp.fromDate(today)),
+        orderBy('timestamp', 'desc'),
+        firestoreLimit(20)  // Get 20 to filter down to 10 completed
+      );
+      const snapshot = await getDocs(q);
+
+      transactionsLoading.classList.add('hidden');
+
+      // Filter for completed transactions in memory
+      const completedTransactions = snapshot.docs
+        .map(doc => doc.data())
+        .filter(txn => txn.status === 'completed')
+        .slice(0, 10);  // Take first 10
+
+      if (completedTransactions.length === 0) {
+        transactionsEmpty.classList.remove('hidden');
+        return;
+      }
+
+      transactionsTableContainer.classList.remove('hidden');
+
+      completedTransactions.forEach(txn => {
+        const txnDate = txn.timestamp?.toDate() || new Date();
+        const timeStr = txnDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td class="time-cell">${timeStr}</td>
+          <td>
+            <div class="txn-id-cell">
+              <span class="material-symbols-outlined" style="font-size: 18px; color: var(--primary);">receipt</span>
+              <span>${txn.transactionId}</span>
+            </div>
+          </td>
+          <td class="text-center">${txn.items?.length || 0}</td>
+          <td>
+            <span class="badge badge-${getPaymentBadgeClass(txn.paymentMethod)}">${txn.paymentMethod?.toUpperCase() || 'CASH'}</span>
+          </td>
+          <td class="total-cell">${formatCurrency(txn.total || 0)}</td>
+          <td>
+            <button class="btn-icon" title="View details">
+              <span class="material-symbols-outlined">visibility</span>
+            </button>
+          </td>
+        `;
+        transactionsTbody.appendChild(row);
+      });
+
+    } catch (error) {
+      console.error('Error loading transactions:', error);
+      transactionsLoading.classList.add('hidden');
+      transactionsEmpty.classList.remove('hidden');
+    }
+  };
+
+  const getPaymentBadgeClass = (method: string) => {
+    const methodLower = method?.toLowerCase() || 'cash';
+    if (methodLower === 'cash') return 'success';
+    if (methodLower === 'card') return 'info';
+    if (methodLower === 'gcash') return 'warning';
+    return 'secondary';
+  };
+
+  // Event Listeners
+  skuInput.addEventListener('input', (e) => {
+    const searchText = (e.target as HTMLInputElement).value;
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => searchProducts(searchText), 300);
+  });
+  
+  skuInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+      searchDropdown.classList.add('hidden');
+      lookupProduct();
+    }
+  });
+
+  // Close dropdown when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!skuInput.contains(e.target as Node) && !searchDropdown.contains(e.target as Node)) {
+      searchDropdown.classList.add('hidden');
+    }
+  });
+
+  addToCartBtn.addEventListener('click', addToCart);
+
+  document.getElementById('clear-cart-btn')!.addEventListener('click', () => {
+    if (cart.length === 0) return;
+    if (confirm('Clear all items from cart?')) {
+      cart = [];
+      renderCart();
+      updateSummary();
+    }
+  });
+
+  document.getElementById('clear-all-btn')!.addEventListener('click', () => {
+    if (cart.length === 0) return;
+    if (confirm('Start new sale? This will clear the current cart.')) {
+      cart = [];
+      currentProduct = null;
+      skuInput.value = '';
+      productDisplay.classList.add('hidden');
+      productEmpty.classList.remove('hidden');
+      renderCart();
+      updateSummary();
+      skuInput.focus();
+    }
+  });
+
+  document.querySelectorAll('.payment-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      document.querySelectorAll('.payment-btn').forEach(b => b.classList.remove('active'));
+      (e.currentTarget as HTMLElement).classList.add('active');
+      selectedPaymentMethod = (e.currentTarget as HTMLElement).dataset.method!;
+    });
+  });
+
+  completeTransactionBtn.addEventListener('click', completeTransaction);
+
+  document.getElementById('close-modal-btn')!.addEventListener('click', () => {
+    successModal.classList.add('hidden');
+  });
+
+  document.getElementById('print-receipt-btn')!.addEventListener('click', () => {
+    alert('Print functionality would be implemented here');
+    successModal.classList.add('hidden');
+  });
+
+  document.getElementById('refresh-transactions-btn')!.addEventListener('click', () => {
+    loadTodayStats();
+    loadRecentTransactions();
+  });
+
+  // Initialize
+  loadAllProducts();
+  loadTodayStats();
+  loadRecentTransactions();
+</script>
+
+<style>
+  .pos-page {
+    padding: 1.5rem;
+    max-width: 1600px;
+    margin: 0 auto;
+  }
+
+  .page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 2rem;
+  }
+
+  .page-header h1 {
+    font-size: 2rem;
+    font-weight: 600;
+    margin: 0 0 0.5rem 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .subtitle {
+    color: var(--text-secondary);
+    margin: 0;
+  }
+
+  .page-actions {
+    display: flex;
+    gap: 0.75rem;
+  }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+  }
+
+  .stat-card {
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .stat-icon {
+    font-size: 40px;
+  }
+
+  .stat-label {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.25rem;
+  }
+
+  .stat-value {
+    font-size: 1.5rem;
+    font-weight: 600;
+  }
+
+  .pos-grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 1.5rem;
+  }
+
+  .card {
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 1.5rem;
+  }
+
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem;
+    background: var(--surface-secondary);
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .card-header h2 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+  }
+
+  .card-body {
+    padding: 1.5rem;
+  }
+
+  .search-bar {
+    display: flex;
+    gap: 0.75rem;
+  }
+
+  .search-input-wrapper {
+    position: relative;
+    flex: 1;
+  }
+
+  .search-icon {
+    position: absolute;
+    left: 1rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-secondary);
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .search-input {
+    width: 100%;
+    padding: 0.75rem 1rem 0.75rem 3rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 0.875rem;
+  }
+
+  .search-input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  }
+
+  .search-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    margin-top: 0.5rem;
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    max-height: 400px;
+    overflow-y: auto;
+    z-index: 1000;
+  }
+
+  .search-result-item {
+    padding: 0.75rem 1rem;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border-color);
+    transition: background 0.2s;
+  }
+
+  .search-result-item:last-child {
+    border-bottom: none;
+  }
+
+  .search-result-item:hover {
+    background: var(--surface-secondary);
+  }
+
+  .result-main {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .result-name {
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .result-sku {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+  }
+
+  .product-display {
+    margin-top: 1.5rem;
+    padding: 1.5rem;
+    background: #f0f9ff;
+    border: 2px solid #bae6fd;
+    border-radius: 8px;
+  }
+
+  .product-info {
+    margin-bottom: 1rem;
+  }
+
+  .product-name {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+  }
+
+  .product-sku {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.25rem;
+  }
+
+  .product-price {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #059669;
+    margin-bottom: 0.25rem;
+  }
+
+  .product-stock {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+  }
+
+  .add-to-cart-section {
+    display: flex;
+    gap: 0.75rem;
+  }
+
+  .quantity-input {
+    width: 100px;
+    padding: 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 1rem;
+    text-align: center;
+  }
+
+  .product-empty {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: var(--text-secondary);
+  }
+
+  .product-empty .material-symbols-outlined {
+    font-size: 64px;
+    opacity: 0.3;
+    margin-bottom: 0.5rem;
+  }
+
+  .cart-empty {
+    text-align: center;
+    padding: 2rem 1rem;
+    color: var(--text-secondary);
+  }
+
+  .cart-empty .material-symbols-outlined {
+    font-size: 48px;
+    opacity: 0.3;
+    margin-bottom: 0.5rem;
+  }
+
+  .cart-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .cart-item:last-child {
+    border-bottom: none;
+  }
+
+  .cart-item-info {
+    flex: 1;
+  }
+
+  .cart-item-name {
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+  }
+
+  .cart-item-sku {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.25rem;
+  }
+
+  .cart-item-price {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+  }
+
+  .cart-item-actions {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .cart-item-subtotal {
+    font-weight: 700;
+    font-size: 1.125rem;
+    color: var(--text-primary);
+  }
+
+  .summary-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .summary-value {
+    font-weight: 600;
+  }
+
+  .total-row {
+    border-bottom: none;
+    padding-top: 1rem;
+    font-size: 1.25rem;
+    font-weight: 700;
+  }
+
+  .summary-total {
+    font-size: 1.5rem;
+    color: var(--primary);
+  }
+
+  .payment-methods {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.75rem;
+  }
+
+  .payment-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 1rem;
+    background: white;
+    border: 2px solid var(--border-color);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .payment-btn:hover {
+    border-color: var(--primary);
+    background: var(--surface-secondary);
+  }
+
+  .payment-btn.active {
+    border-color: var(--primary);
+    background: #eff6ff;
+    color: var(--primary);
+  }
+
+  .payment-btn .material-symbols-outlined {
+    font-size: 32px;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.5rem;
+    border-radius: 6px;
+    font-weight: 500;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .btn-primary {
+    background: var(--primary);
+    color: white;
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    background: var(--primary-dark);
+  }
+
+  .btn-secondary {
+    background: white;
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+  }
+
+  .btn-secondary:hover {
+    background: var(--surface-secondary);
+  }
+
+  .btn-success {
+    background: #10b981;
+    color: white;
+  }
+
+  .btn-success:hover {
+    background: #059669;
+  }
+
+  .btn-large {
+    width: 100%;
+    padding: 1.25rem;
+    font-size: 1.125rem;
+  }
+
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .btn-icon {
+    padding: 0.5rem;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.2s;
+  }
+
+  .btn-icon:hover {
+    background: var(--surface-secondary);
+  }
+
+  .btn-danger {
+    color: #dc2626;
+  }
+
+  .btn-danger:hover {
+    background: #fee2e2;
+  }
+
+  .btn-ghost {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 0.5rem;
+    border-radius: 4px;
+    transition: all 0.2s;
+  }
+
+  .btn-ghost:hover {
+    background: var(--surface-secondary);
+  }
+
+  .hidden {
+    display: none !important;
+  }
+
+  .spinning {
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  /* Modal Styles */
+  .modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  }
+
+  .modal-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+  }
+
+  .modal-content {
+    position: relative;
+    background: white;
+    border-radius: 12px;
+    max-width: 500px;
+    width: 90%;
+    z-index: 1001;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2);
+  }
+
+  .success-modal {
+    padding: 2rem;
+    text-align: center;
+  }
+
+  .success-icon {
+    margin: 0 auto 1rem;
+    width: 80px;
+    height: 80px;
+    background: #d1fae5;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .success-icon .material-symbols-outlined {
+    font-size: 48px;
+    color: #059669;
+  }
+
+  .success-modal h2 {
+    margin: 0 0 1.5rem 0;
+    color: var(--text-primary);
+  }
+
+  .transaction-details {
+    background: var(--surface-secondary);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .detail-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .detail-row:last-child {
+    border-bottom: none;
+  }
+
+  .detail-value {
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .modal-actions {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: center;
+  }
+
+  @media (max-width: 1024px) {
+    .pos-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .pos-right {
+      order: -1;
+    }
+  }
+
+  @media (max-width: 768px) {
+    .page-header {
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .stats-grid {
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .payment-methods {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  /* Transaction Table Styles */
+  .table-container {
+    overflow-x: auto;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  thead {
+    background: var(--surface-secondary);
+    border-bottom: 2px solid var(--border-color);
+  }
+
+  th {
+    padding: 0.75rem 1rem;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  tbody tr {
+    border-bottom: 1px solid var(--border-color);
+    transition: background 0.2s;
+  }
+
+  tbody tr:hover {
+    background: var(--surface-secondary);
+  }
+
+  td {
+    padding: 1rem;
+    font-size: 0.875rem;
+  }
+
+  .time-cell {
+    color: var(--text-secondary);
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .txn-id-cell {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 600;
+  }
+
+  .text-center {
+    text-align: center;
+  }
+
+  .total-cell {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #059669;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+
+  .badge-success {
+    background: #d1fae5;
+    color: #065f46;
+  }
+
+  .badge-info {
+    background: #dbeafe;
+    color: #1e40af;
+  }
+
+  .badge-warning {
+    background: #fef3c7;
+    color: #92400e;
+  }
+
+  .badge-secondary {
+    background: #f3f4f6;
+    color: #4b5563;
+  }
+
+  .btn-icon {
+    padding: 0.5rem;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.2s;
+    color: var(--text-secondary);
+  }
+
+  .btn-icon:hover {
+    background: var(--surface-secondary);
+    color: var(--primary);
+  }
+</style>

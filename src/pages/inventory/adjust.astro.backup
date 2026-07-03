@@ -1,0 +1,711 @@
+---
+/**
+ * Inventory Adjustment Page - Modern Client-Side
+ * 
+ * Allows warehouse staff to record physical count adjustments.
+ * Uses client-side rendering with Firestore for real-time updates.
+ * 
+ * Requirements: 8.7, 20.2
+ */
+
+import ModernLayout from '../../layouts/ModernLayout.astro';
+
+// Disable caching
+Astro.response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+---
+
+<ModernLayout title="Adjust Inventory">
+  <div class="adjust-page">
+    <!-- Page Header -->
+    <div class="page-header">
+      <div>
+        <h1>
+          <span class="material-symbols-outlined" style="vertical-align: middle; margin-right: 0.5rem;">tune</span>
+          Adjust Inventory
+        </h1>
+        <p class="subtitle">Record physical count adjustments</p>
+      </div>
+      <a href="/inventory" class="btn btn-secondary">
+        <span class="material-symbols-outlined">arrow_back</span>
+        Back to Inventory
+      </a>
+    </div>
+
+    <!-- Loading State -->
+    <div id="loading-state" class="loading-container">
+      <div class="spinner"></div>
+      <p style="margin-top: 1rem; color: var(--text-secondary);">Loading products...</p>
+    </div>
+
+    <!-- Error Display -->
+    <div id="error-display" class="hidden">
+      <div class="alert alert-error">
+        <span class="material-symbols-outlined">error</span>
+        <div>
+          <strong>Error:</strong> <span id="error-message"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Adjustment Form -->
+    <div id="form-container" class="card hidden">
+      <form id="adjustmentForm">
+        <!-- Product Selection -->
+        <div class="form-section">
+          <h2>Product Information</h2>
+          
+          <div class="form-group">
+            <label for="sku">
+              Product <span class="required">*</span>
+            </label>
+            <select id="sku" name="sku" required class="form-select">
+              <option value="">Select a product...</option>
+            </select>
+            <small>Choose the product to adjust</small>
+          </div>
+
+          <!-- Current Quantity Display -->
+          <div id="current-quantity-card" class="info-card hidden">
+            <div class="info-card-header">
+              <span class="material-symbols-outlined">info</span>
+              Current Status
+            </div>
+            <div class="info-card-body">
+              <div class="info-item">
+                <span class="info-label">Current Quantity</span>
+                <span class="info-value" id="current-quantity">0</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Location</span>
+                <span class="info-value" id="current-location">-</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="locationId">
+              Location <span class="required">*</span>
+            </label>
+            <select id="locationId" name="locationId" required class="form-select">
+              <option value="">Select a location...</option>
+              <option value="warehouse">Warehouse</option>
+              <option value="store">Store</option>
+              <option value="default">Default</option>
+            </select>
+            <small>Select the inventory location</small>
+          </div>
+        </div>
+
+        <!-- Adjustment Details -->
+        <div class="form-section">
+          <h2>Adjustment Details</h2>
+          
+          <div class="form-group">
+            <label for="quantityChange">
+              Quantity Adjustment <span class="required">*</span>
+            </label>
+            <input 
+              type="number" 
+              id="quantityChange" 
+              name="quantityChange" 
+              required
+              step="1"
+              placeholder="Enter + to add, - to subtract"
+              class="form-input"
+            />
+            <small>Positive to increase, negative to decrease (e.g., +10 or -5)</small>
+          </div>
+
+          <div class="form-group">
+            <label for="reason">
+              Reason <span class="required">*</span>
+            </label>
+            <select id="reason" name="reason" required class="form-select">
+              <option value="">Select a reason...</option>
+              <option value="physical_count">Physical Count Adjustment</option>
+              <option value="receiving">Receiving (Manual Entry)</option>
+              <option value="return">Customer Return</option>
+              <option value="sale_correction">Sale Correction</option>
+              <option value="damage">Damage/Loss</option>
+              <option value="other">Other</option>
+            </select>
+            <small>Why are you making this adjustment?</small>
+          </div>
+
+          <div class="form-group">
+            <label for="notes">Notes</label>
+            <textarea 
+              id="notes" 
+              name="notes" 
+              rows="3"
+              placeholder="Add any additional details..."
+              class="form-input"
+            ></textarea>
+            <small>Optional additional information</small>
+          </div>
+        </div>
+
+        <!-- Form Actions -->
+        <div class="form-actions">
+          <button type="button" class="btn btn-secondary" id="cancel-btn">
+            <span class="material-symbols-outlined">close</span>
+            Cancel
+          </button>
+          <button type="submit" class="btn btn-primary" id="submit-btn">
+            <span class="material-symbols-outlined">save</span>
+            Submit Adjustment
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Success Modal -->
+    <div id="success-modal" class="modal hidden">
+      <div class="modal-overlay"></div>
+      <div class="modal-content">
+        <div class="modal-header success">
+          <span class="material-symbols-outlined">check_circle</span>
+          <h2>Adjustment Successful</h2>
+        </div>
+        <div class="modal-body">
+          <div class="success-details">
+            <div class="detail-row">
+              <span class="detail-label">Product:</span>
+              <span class="detail-value" id="success-sku"></span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Location:</span>
+              <span class="detail-value" id="success-location"></span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Previous Quantity:</span>
+              <span class="detail-value" id="success-before"></span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Adjustment:</span>
+              <span class="detail-value highlight" id="success-change"></span>
+            </div>
+            <div class="detail-row total">
+              <span class="detail-label">New Quantity:</span>
+              <span class="detail-value" id="success-after"></span>
+            </div>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" id="adjust-another-btn">
+            <span class="material-symbols-outlined">add</span>
+            Adjust Another
+          </button>
+          <button class="btn btn-primary" id="view-inventory-btn">
+            <span class="material-symbols-outlined">inventory_2</span>
+            View Inventory
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</ModernLayout>
+  <!-- Page Header -->
+  <div class="page-header mb-6">
+    <div class="flex items-center justify-between">
+      <div>
+        <h1 class="text-3xl font-bold text-gray-900">Inventory Adjustment</h1>
+        <p class="text-gray-600 mt-1">Record physical count adjustments</p>
+      </div>
+      <div>
+        <a 
+          href="/inventory" 
+          class="button bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700 transition-colors font-medium"
+        >
+          ← Back to Inventory
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Error Display -->
+  {error && (
+    <div class="mb-6">
+      <ErrorMessage 
+        message={error}
+        type="error"
+        dismissable={false}
+      />
+    </div>
+  )}
+
+  <!-- Loading State -->
+  {isLoading && (
+    <LoadingSpinner 
+      size="lg"
+      message="Loading products and locations..."
+    />
+  )}
+
+  <!-- Adjustment Form -->
+  {!isLoading && !error && (
+    <div class="form-card bg-white rounded-lg shadow-md p-8 max-w-3xl mx-auto">
+      <form id="adjustmentForm" class="space-y-6">
+        <!-- Product Selection -->
+        <div class="form-group">
+          <label for="sku" class="block text-sm font-medium text-gray-700 mb-2">
+            Product <span class="text-red-600">*</span>
+          </label>
+          <select 
+            id="sku" 
+            name="sku" 
+            required
+            class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          >
+            <option value="">-- Select Product --</option>
+            {products.map(product => (
+              <option value={product.sku}>
+                {product.sku} - {product.description} ({product.unitOfMeasure})
+              </option>
+            ))}
+          </select>
+          <p class="text-xs text-gray-500 mt-1">Select the product to adjust</p>
+        </div>
+
+        <!-- Current Quantity Display -->
+        <div id="currentQuantityDisplay" class="hidden bg-blue-50 border border-blue-200 rounded-md p-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-sm font-medium text-blue-900">Current Quantity</p>
+              <p id="currentQuantityValue" class="text-2xl font-bold text-blue-600 mt-1">0</p>
+            </div>
+            <div class="text-right">
+              <p class="text-sm font-medium text-blue-900">Location</p>
+              <p id="currentLocationValue" class="text-lg font-semibold text-blue-600 mt-1">-</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Location Selection -->
+        <div class="form-group">
+          <label for="locationId" class="block text-sm font-medium text-gray-700 mb-2">
+            Location <span class="text-red-600">*</span>
+          </label>
+          <select 
+            id="locationId" 
+            name="locationId" 
+            required
+            class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          >
+            <option value="">-- Select Location --</option>
+            {locations.map(location => (
+              <option value={location}>{location}</option>
+            ))}
+          </select>
+          <p class="text-xs text-gray-500 mt-1">Select the inventory location</p>
+        </div>
+
+        <!-- Quantity Adjustment -->
+        <div class="form-group">
+          <label for="quantityChange" class="block text-sm font-medium text-gray-700 mb-2 inline-flex items-center gap-2">
+            Quantity Adjustment <span class="text-red-600">*</span>
+            <Tooltip content="Enter a positive number to add inventory (e.g., +10) or a negative number to subtract inventory (e.g., -5). This will be applied to the current quantity." position="right" maxWidth={300}>
+              <span class="inline-flex items-center justify-center w-4 h-4 text-xs text-blue-600 border border-blue-600 rounded-full cursor-help">?</span>
+            </Tooltip>
+          </label>
+          <input 
+            type="number" 
+            id="quantityChange" 
+            name="quantityChange" 
+            required
+            step="1"
+            placeholder="Enter adjustment (+ to increase, - to decrease)"
+            class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          />
+          <p class="text-xs text-gray-500 mt-1">
+            Enter positive number to increase inventory or negative number to decrease
+          </p>
+        </div>
+
+        <!-- Adjustment Reason -->
+        <div class="form-group">
+          <label for="reason" class="block text-sm font-medium text-gray-700 mb-2 inline-flex items-center gap-2">
+            Reason <span class="text-red-600">*</span>
+            <Tooltip content="Select why you are making this adjustment. This helps track inventory changes and supports audit requirements." position="right">
+              <span class="inline-flex items-center justify-center w-4 h-4 text-xs text-blue-600 border border-blue-600 rounded-full cursor-help">?</span>
+            </Tooltip>
+          </label>
+          <select 
+            id="reason" 
+            name="reason" 
+            required
+            class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          >
+            <option value="">-- Select Reason --</option>
+            <option value="adjustment">Physical Count Adjustment</option>
+            <option value="receiving">Receiving (manual entry)</option>
+            <option value="return">Customer Return</option>
+            <option value="sale">Sale Correction</option>
+          </select>
+          <p class="text-xs text-gray-500 mt-1">Select the reason for the adjustment</p>
+        </div>
+
+        <!-- Notes -->
+        <div class="form-group">
+          <label for="notes" class="block text-sm font-medium text-gray-700 mb-2">
+            Notes
+          </label>
+          <textarea 
+            id="notes" 
+            name="notes" 
+            rows="3"
+            placeholder="Enter any additional notes or comments..."
+            class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          ></textarea>
+          <p class="text-xs text-gray-500 mt-1">Optional additional information</p>
+        </div>
+
+        <!-- Form Actions -->
+        <div class="form-actions flex items-center justify-end gap-4 pt-4 border-t">
+          <button 
+            type="button" 
+            id="cancelBtn"
+            class="button bg-gray-200 text-gray-700 px-6 py-2 rounded-md hover:bg-gray-300 transition-colors font-medium"
+          >
+            Cancel
+          </button>
+          <button 
+            type="submit" 
+            id="submitBtn"
+            class="button bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors font-medium"
+          >
+            Adjust Inventory
+          </button>
+        </div>
+      </form>
+
+      <!-- Loading Overlay -->
+      <div id="loadingOverlay" class="hidden absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center rounded-lg">
+        <div class="text-center">
+          <div class="spinner border-4 border-blue-600 border-t-transparent rounded-full w-12 h-12 animate-spin mx-auto mb-4"></div>
+          <p class="text-gray-700 font-medium">Processing adjustment...</p>
+        </div>
+      </div>
+    </div>
+  )}
+
+  <!-- Confirmation Modal -->
+  <div id="confirmationModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+      <div class="text-center mb-4">
+        <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100 mb-4">
+          <svg class="h-6 w-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+          </svg>
+        </div>
+        <h3 class="text-lg font-bold text-gray-900 mb-2">Adjustment Successful</h3>
+        <p class="text-sm text-gray-600 mb-4">Inventory has been updated successfully</p>
+      </div>
+
+      <div class="bg-gray-50 rounded-md p-4 mb-6 space-y-2">
+        <div class="flex justify-between text-sm">
+          <span class="text-gray-600">Product:</span>
+          <span id="confirmSKU" class="font-semibold text-gray-900"></span>
+        </div>
+        <div class="flex justify-between text-sm">
+          <span class="text-gray-600">Location:</span>
+          <span id="confirmLocation" class="font-semibold text-gray-900"></span>
+        </div>
+        <div class="flex justify-between text-sm">
+          <span class="text-gray-600">Previous Quantity:</span>
+          <span id="confirmBefore" class="font-semibold text-gray-900"></span>
+        </div>
+        <div class="flex justify-between text-sm">
+          <span class="text-gray-600">Adjustment:</span>
+          <span id="confirmChange" class="font-semibold text-gray-900"></span>
+        </div>
+        <div class="flex justify-between text-sm pt-2 border-t border-gray-200">
+          <span class="text-gray-600">New Quantity:</span>
+          <span id="confirmAfter" class="text-lg font-bold text-green-600"></span>
+        </div>
+      </div>
+
+      <div class="flex gap-3">
+        <button 
+          id="adjustAnotherBtn"
+          class="flex-1 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors font-medium"
+        >
+          Adjust Another
+        </button>
+        <button 
+          id="viewInventoryBtn"
+          class="flex-1 bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300 transition-colors font-medium"
+        >
+          View Inventory
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Error Modal -->
+  <div id="errorModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+      <div class="text-center mb-4">
+        <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100 mb-4">
+          <svg class="h-6 w-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+          </svg>
+        </div>
+        <h3 class="text-lg font-bold text-gray-900 mb-2">Adjustment Failed</h3>
+        <p id="errorMessage" class="text-sm text-gray-600 mb-4"></p>
+      </div>
+
+      <button 
+        id="closeErrorBtn"
+        class="w-full bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300 transition-colors font-medium"
+      >
+        Close
+      </button>
+    </div>
+  </div>
+
+  <script>
+    // Get form elements
+    const form = document.getElementById('adjustmentForm') as HTMLFormElement;
+    const skuSelect = document.getElementById('sku') as HTMLSelectElement;
+    const locationSelect = document.getElementById('locationId') as HTMLSelectElement;
+    const quantityInput = document.getElementById('quantityChange') as HTMLInputElement;
+    const currentQuantityDisplay = document.getElementById('currentQuantityDisplay') as HTMLDivElement;
+    const currentQuantityValue = document.getElementById('currentQuantityValue') as HTMLParagraphElement;
+    const currentLocationValue = document.getElementById('currentLocationValue') as HTMLParagraphElement;
+    const submitBtn = document.getElementById('submitBtn') as HTMLButtonElement;
+    const cancelBtn = document.getElementById('cancelBtn') as HTMLButtonElement;
+    const loadingOverlay = document.getElementById('loadingOverlay') as HTMLDivElement;
+
+    // Get modal elements
+    const confirmationModal = document.getElementById('confirmationModal') as HTMLDivElement;
+    const errorModal = document.getElementById('errorModal') as HTMLDivElement;
+    const adjustAnotherBtn = document.getElementById('adjustAnotherBtn') as HTMLButtonElement;
+    const viewInventoryBtn = document.getElementById('viewInventoryBtn') as HTMLButtonElement;
+    const closeErrorBtn = document.getElementById('closeErrorBtn') as HTMLButtonElement;
+    const errorMessage = document.getElementById('errorMessage') as HTMLParagraphElement;
+
+    // Get confirmation display elements
+    const confirmSKU = document.getElementById('confirmSKU') as HTMLSpanElement;
+    const confirmLocation = document.getElementById('confirmLocation') as HTMLSpanElement;
+    const confirmBefore = document.getElementById('confirmBefore') as HTMLSpanElement;
+    const confirmChange = document.getElementById('confirmChange') as HTMLSpanElement;
+    const confirmAfter = document.getElementById('confirmAfter') as HTMLSpanElement;
+
+    // Update current quantity when product or location changes
+    async function updateCurrentQuantity() {
+      const sku = skuSelect.value;
+      const locationId = locationSelect.value;
+
+      if (!sku || !locationId) {
+        currentQuantityDisplay.classList.add('hidden');
+        return;
+      }
+
+      try {
+        // Fetch current quantity from API or directly
+        const response = await fetch(`/api/inventory/quantity?sku=${encodeURIComponent(sku)}&location=${encodeURIComponent(locationId)}`);
+        
+        if (response.ok) {
+          const data = await response.json();
+          currentQuantityValue.textContent = data.quantity.toString();
+          currentLocationValue.textContent = locationId;
+          currentQuantityDisplay.classList.remove('hidden');
+        } else {
+          // If API endpoint doesn't exist, hide display
+          currentQuantityDisplay.classList.add('hidden');
+        }
+      } catch (error) {
+        console.warn('Could not fetch current quantity:', error);
+        currentQuantityDisplay.classList.add('hidden');
+      }
+    }
+
+    // Attach change listeners
+    skuSelect.addEventListener('change', updateCurrentQuantity);
+    locationSelect.addEventListener('change', updateCurrentQuantity);
+
+    // Handle form submission
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      // Get form data
+      const formData = new FormData(form);
+      const sku = formData.get('sku') as string;
+      const locationId = formData.get('locationId') as string;
+      const quantityChange = parseInt(formData.get('quantityChange') as string, 10);
+      const reason = formData.get('reason') as string;
+      const notes = formData.get('notes') as string;
+
+      // Validate quantity is a number
+      if (isNaN(quantityChange)) {
+        showError('Quantity adjustment must be a valid number');
+        return;
+      }
+
+      // Get user ID from session (this should come from auth context)
+      // For now, using a placeholder - in production this would come from the session
+      const userId = 'current-user'; // TODO: Get from auth context
+
+      // Show loading overlay
+      loadingOverlay.classList.remove('hidden');
+      submitBtn.disabled = true;
+
+      try {
+        // Call API endpoint
+        const response = await fetch('/api/inventory/adjust', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            sku,
+            locationId,
+            quantityChange,
+            reason,
+            notes: notes || undefined,
+            userId,
+          }),
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result.error?.message || 'Failed to adjust inventory');
+        }
+
+        // Show confirmation modal with before/after quantities
+        showConfirmation(result.data);
+
+        // Reset form
+        form.reset();
+        currentQuantityDisplay.classList.add('hidden');
+      } catch (error) {
+        console.error('Error adjusting inventory:', error);
+        showError(error instanceof Error ? error.message : 'Failed to adjust inventory');
+      } finally {
+        loadingOverlay.classList.add('hidden');
+        submitBtn.disabled = false;
+      }
+    });
+
+    // Show confirmation modal
+    function showConfirmation(data: any) {
+      confirmSKU.textContent = data.sku;
+      confirmLocation.textContent = data.locationId;
+      confirmBefore.textContent = data.quantityBefore.toString();
+      confirmAfter.textContent = data.quantityAfter.toString();
+      
+      const change = data.quantityChange;
+      confirmChange.textContent = (change >= 0 ? '+' : '') + change.toString();
+      confirmChange.classList.remove('text-red-600', 'text-green-600');
+      confirmChange.classList.add(change >= 0 ? 'text-green-600' : 'text-red-600');
+
+      confirmationModal.classList.remove('hidden');
+    }
+
+    // Show error modal
+    function showError(message: string) {
+      errorMessage.textContent = message;
+      errorModal.classList.remove('hidden');
+    }
+
+    // Handle cancel button
+    cancelBtn.addEventListener('click', () => {
+      if (confirm('Are you sure you want to cancel? Any unsaved changes will be lost.')) {
+        window.location.href = '/inventory';
+      }
+    });
+
+    // Handle "Adjust Another" button
+    adjustAnotherBtn.addEventListener('click', () => {
+      confirmationModal.classList.add('hidden');
+      // Form is already reset
+    });
+
+    // Handle "View Inventory" button
+    viewInventoryBtn.addEventListener('click', () => {
+      window.location.href = '/inventory';
+    });
+
+    // Handle error modal close
+    closeErrorBtn.addEventListener('click', () => {
+      errorModal.classList.add('hidden');
+    });
+
+    // Close modals on outside click
+    confirmationModal.addEventListener('click', (e) => {
+      if (e.target === confirmationModal) {
+        confirmationModal.classList.add('hidden');
+      }
+    });
+
+    errorModal.addEventListener('click', (e) => {
+      if (e.target === errorModal) {
+        errorModal.classList.add('hidden');
+      }
+    });
+  </script>
+
+  <style>
+    .page-header {
+      border-bottom: 2px solid var(--color-border);
+      padding-bottom: 1rem;
+    }
+
+    .form-card {
+      position: relative;
+    }
+
+    .form-group label {
+      font-weight: 600;
+    }
+
+    .form-group input:focus,
+    .form-group select:focus,
+    .form-group textarea:focus {
+      outline: none;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+
+    .spinner {
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      from {
+        transform: rotate(0deg);
+      }
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    /* Required field asterisk */
+    .text-red-600 {
+      color: #dc2626;
+    }
+
+    /* Responsive adjustments */
+    @media (max-width: 768px) {
+      .form-card {
+        padding: 1.5rem;
+      }
+
+      .page-header .flex {
+        flex-direction: column;
+        gap: 1rem;
+        align-items: flex-start;
+      }
+
+      .form-actions {
+        flex-direction: column;
+        gap: 0.75rem;
+      }
+
+      .form-actions button {
+        width: 100%;
+      }
+    }
+  </style>
+</ModernLayout>

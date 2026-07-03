@@ -1,0 +1,476 @@
+---
+/**
+ * Component Demo Page
+ * 
+ * Demonstrates all reusable UI components in action
+ * Useful for testing and visual verification
+ */
+
+import ErrorMessage from '../components/ErrorMessage.astro';
+import LoadingSpinner from '../components/LoadingSpinner.astro';
+import DataTable from '../components/DataTable.astro';
+import SearchBar from '../components/SearchBar.astro';
+import Modal from '../components/Modal.astro';
+
+// Sample data for DataTable
+const sampleProducts = [
+  { id: 1, sku: 'ABC-001', name: 'Widget A', price: 25.99, quantity: 100, category: 'Electronics' },
+  { id: 2, sku: 'ABC-002', name: 'Widget B', price: 15.50, quantity: 50, category: 'Furniture' },
+  { id: 3, sku: 'ABC-003', name: 'Gadget X', price: 199.99, quantity: 25, category: 'Electronics' },
+  { id: 4, sku: 'ABC-004', name: 'Tool Y', price: 45.00, quantity: 75, category: 'Tools' },
+  { id: 5, sku: 'ABC-005', name: 'Device Z', price: 89.99, quantity: 30, category: 'Electronics' }
+];
+
+const columns = [
+  { key: 'sku', label: 'SKU', sortable: true },
+  { key: 'name', label: 'Product Name', sortable: true },
+  { key: 'category', label: 'Category', sortable: true },
+  { key: 'price', label: 'Price', sortable: true, align: 'right' as const, 
+    format: (val: number) => `$${val.toFixed(2)}` },
+  { key: 'quantity', label: 'Quantity', sortable: true, align: 'center' as const }
+];
+
+const searchFilters = [
+  {
+    key: 'category',
+    label: 'Category',
+    options: [
+      { value: 'electronics', label: 'Electronics' },
+      { value: 'furniture', label: 'Furniture' },
+      { value: 'tools', label: 'Tools' }
+    ]
+  },
+  {
+    key: 'status',
+    label: 'Status',
+    options: [
+      { value: 'active', label: 'Active' },
+      { value: 'inactive', label: 'Inactive' }
+    ]
+  }
+];
+---
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Component Demo - PRO SYNAPSE</title>
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      line-height: 1.5;
+      color: #1f2937;
+      background-color: #f9fafb;
+    }
+
+    .container {
+      max-width: 80rem;
+      margin: 0 auto;
+      padding: 1.5rem;
+    }
+
+    h1 {
+      font-size: 2.25rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+      color: #1f2937;
+    }
+
+    h2 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+      color: #1f2937;
+    }
+
+    h3 {
+      font-size: 0.875rem;
+      font-weight: 500;
+      margin-bottom: 0.5rem;
+      color: #374151;
+    }
+
+    p {
+      margin-bottom: 2rem;
+      color: #6b7280;
+    }
+
+    section {
+      background: white;
+      padding: 1.5rem;
+      border-radius: 0.5rem;
+      box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+      margin-bottom: 3rem;
+    }
+
+    .space-y-3 > * + * {
+      margin-top: 0.75rem;
+    }
+
+    .space-y-4 > * + * {
+      margin-top: 1rem;
+    }
+
+    .space-y-6 > * + * {
+      margin-top: 1.5rem;
+    }
+
+    .bg-gray-50 {
+      background-color: #f9fafb;
+    }
+
+    .p-6 {
+      padding: 1.5rem;
+    }
+
+    .rounded-lg {
+      border-radius: 0.5rem;
+    }
+
+    button {
+      cursor: pointer;
+      transition: all 0.2s;
+      border: none;
+      font-family: inherit;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+    }
+
+    .flex {
+      display: flex;
+    }
+
+    .flex-wrap {
+      flex-wrap: wrap;
+    }
+
+    .gap-3 {
+      gap: 0.75rem;
+    }
+
+    .px-4 {
+      padding-left: 1rem;
+      padding-right: 1rem;
+    }
+
+    .py-2 {
+      padding-top: 0.5rem;
+      padding-bottom: 0.5rem;
+    }
+
+    .bg-blue-600 {
+      background-color: #2563eb;
+    }
+
+    .bg-blue-600:hover {
+      background-color: #1d4ed8;
+    }
+
+    .bg-red-600 {
+      background-color: #dc2626;
+    }
+
+    .bg-red-600:hover {
+      background-color: #b91c1c;
+    }
+
+    .bg-green-600 {
+      background-color: #16a34a;
+    }
+
+    .bg-green-600:hover {
+      background-color: #15803d;
+    }
+
+    .bg-yellow-600 {
+      background-color: #ca8a04;
+    }
+
+    .bg-yellow-600:hover {
+      background-color: #a16207;
+    }
+
+    .text-white {
+      color: white;
+    }
+
+    .rounded-md {
+      border-radius: 0.375rem;
+    }
+
+    .text-center {
+      text-align: center;
+    }
+
+    .text-6xl {
+      font-size: 3.75rem;
+      line-height: 1;
+    }
+
+    .mb-4 {
+      margin-bottom: 1rem;
+    }
+
+    .mt-2 {
+      margin-top: 0.5rem;
+    }
+
+    .mt-3 {
+      margin-top: 0.75rem;
+    }
+
+    .font-semibold {
+      font-weight: 600;
+    }
+
+    .text-sm {
+      font-size: 0.875rem;
+      line-height: 1.25rem;
+    }
+
+    .text-gray-700 {
+      color: #374151;
+    }
+
+    .text-gray-600 {
+      color: #4b5563;
+    }
+
+    .list-disc {
+      list-style-type: disc;
+    }
+
+    .list-inside {
+      list-style-position: inside;
+    }
+
+    .space-y-1 > * + * {
+      margin-top: 0.25rem;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .container {
+      animation: fadeIn 0.3s ease-out;
+    }
+  </style>
+</head>
+<body>
+  <div class="container mx-auto p-6 max-w-7xl">
+    <h1 class="text-4xl font-bold mb-2 text-gray-800">UI Components Demo</h1>
+    <p class="text-gray-600 mb-8">Interactive demonstration of all reusable components</p>
+
+    <!-- ErrorMessage Component -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-semibold mb-4 text-gray-800">ErrorMessage Component</h2>
+      <div class="space-y-3">
+        <ErrorMessage message="This is an error message" type="error" />
+        <ErrorMessage message="This is a warning message" type="warning" />
+        <ErrorMessage message="This is an informational message" type="info" />
+        <ErrorMessage 
+          message="Price must be a positive number with maximum 2 decimal places" 
+          field="Price"
+          type="error"
+        />
+        <ErrorMessage 
+          message="This is a dismissable warning" 
+          type="warning"
+          dismissable={true}
+        />
+      </div>
+    </section>
+
+    <!-- LoadingSpinner Component -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-semibold mb-4 text-gray-800">LoadingSpinner Component</h2>
+      <div class="space-y-6 bg-gray-50 p-6 rounded-lg">
+        <div>
+          <h3 class="text-sm font-medium text-gray-700 mb-2">Small</h3>
+          <LoadingSpinner size="sm" message="Loading..." />
+        </div>
+        <div>
+          <h3 class="text-sm font-medium text-gray-700 mb-2">Medium</h3>
+          <LoadingSpinner size="md" message="Processing pricelist..." />
+        </div>
+        <div>
+          <h3 class="text-sm font-medium text-gray-700 mb-2">Large</h3>
+          <LoadingSpinner size="lg" message="Analyzing products... This may take a moment." />
+        </div>
+        <div>
+          <button 
+            id="show-fullscreen-spinner"
+            class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+          >
+            Show Full-Screen Spinner
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- SearchBar Component -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-semibold mb-4 text-gray-800">SearchBar Component</h2>
+      <div class="space-y-4">
+        <div>
+          <h3 class="text-sm font-medium text-gray-700 mb-2">Basic Search</h3>
+          <SearchBar placeholder="Search products..." />
+        </div>
+        <div>
+          <h3 class="text-sm font-medium text-gray-700 mb-2">Search with Filters</h3>
+          <SearchBar 
+            placeholder="Search products by SKU or name..."
+            filters={searchFilters}
+          />
+        </div>
+      </div>
+    </section>
+
+    <!-- DataTable Component -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-semibold mb-4 text-gray-800">DataTable Component</h2>
+      <p class="text-sm text-gray-600 mb-4">Click column headers to sort. Try sorting by Price or Quantity.</p>
+      <DataTable 
+        columns={columns}
+        data={sampleProducts}
+        keyField="id"
+        striped={true}
+        hoverable={true}
+      />
+    </section>
+
+    <!-- Modal Component -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-semibold mb-4 text-gray-800">Modal Component</h2>
+      <div class="flex flex-wrap gap-3">
+        <button 
+          class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+          onclick="window.Modal.show('#modal-default')"
+        >
+          Show Default Modal
+        </button>
+        <button 
+          class="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+          onclick="window.Modal.show('#modal-danger')"
+        >
+          Show Danger Modal
+        </button>
+        <button 
+          class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+          onclick="window.Modal.show('#modal-success')"
+        >
+          Show Success Modal
+        </button>
+        <button 
+          class="px-4 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700"
+          onclick="window.Modal.show('#modal-warning')"
+        >
+          Show Warning Modal
+        </button>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- Modals (hidden by default) -->
+  <Modal title="Default Modal" type="default" size="md">
+    <p class="text-gray-700">This is a default modal with standard styling.</p>
+    <p class="text-sm text-gray-600 mt-2">You can use this for general-purpose dialogs and forms.</p>
+  </Modal>
+
+  <Modal title="Confirm Delete" type="danger" size="md">
+    <p class="text-gray-700 font-semibold">Are you sure you want to delete this product?</p>
+    <p class="text-sm text-gray-600 mt-2">This action cannot be undone. All associated data will be permanently removed.</p>
+  </Modal>
+
+  <Modal title="Success!" type="success" size="md">
+    <div class="text-center">
+      <div class="text-6xl mb-4">✓</div>
+      <p class="text-gray-700 font-semibold">Operation completed successfully!</p>
+      <p class="text-sm text-gray-600 mt-2">Your changes have been saved.</p>
+    </div>
+  </Modal>
+
+  <Modal title="Warning" type="warning" size="md">
+    <p class="text-gray-700">⚠️ This action may have unintended consequences.</p>
+    <p class="text-sm text-gray-600 mt-2">Please review the following before proceeding:</p>
+    <ul class="list-disc list-inside mt-3 text-sm text-gray-700 space-y-1">
+      <li>Price changes will affect all active orders</li>
+      <li>Customers will be notified automatically</li>
+      <li>Changes take effect immediately</li>
+    </ul>
+  </Modal>
+
+  <!-- Full-screen spinner (initially hidden) -->
+  <div id="fullscreen-spinner" class="hidden">
+    <LoadingSpinner 
+      size="lg" 
+      message="Processing your request... Please wait."
+      fullScreen={true}
+    />
+  </div>
+
+</body>
+</html>
+
+<script>
+  // Full-screen spinner demo
+  document.addEventListener('DOMContentLoaded', () => {
+    const showSpinnerBtn = document.getElementById('show-fullscreen-spinner');
+    const spinnerContainer = document.getElementById('fullscreen-spinner');
+    
+    if (showSpinnerBtn && spinnerContainer) {
+      showSpinnerBtn.addEventListener('click', () => {
+        spinnerContainer.classList.remove('hidden');
+        
+        // Hide after 3 seconds (demo purposes)
+        setTimeout(() => {
+          spinnerContainer.classList.add('hidden');
+        }, 3000);
+      });
+    }
+
+    // Log modal events
+    const modals = document.querySelectorAll('.modal-backdrop');
+    modals.forEach(modal => {
+      modal.addEventListener('confirm', (e) => {
+        console.log('Modal confirmed');
+        // In a real app, you would handle the confirmation here
+      });
+
+      modal.addEventListener('cancel', (e) => {
+        console.log('Modal cancelled');
+      });
+    });
+
+    // Log search events
+    const searchForms = document.querySelectorAll('.search-form');
+    searchForms.forEach(form => {
+      form.addEventListener('search', (e) => {
+        console.log('Search query:', (e as CustomEvent).detail.query);
+      });
+    });
+  });
+</script>

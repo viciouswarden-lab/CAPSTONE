@@ -1,0 +1,685 @@
+---
+/**
+ * Supplier List Page - Modern Version with Firestore
+ * 
+ * Displays a searchable list of all suppliers with their current status.
+ * Uses client-side rendering for real-time Firestore updates.
+ * Requirements: 2.4, 2.5
+ */
+
+import ModernLayout from '../../layouts/ModernLayout.astro';
+
+// Disable caching to ensure fresh data on every visit
+Astro.response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+---
+
+<ModernLayout title="Suppliers">
+  <!-- Page Header -->
+  <div class="page-header">
+    <div class="page-header-content">
+      <h1>Suppliers</h1>
+      <p>Manage your supplier relationships and contacts</p>
+    </div>
+    <div class="page-header-actions">
+      <button class="btn btn-secondary">
+        <span class="material-symbols-outlined">download</span>
+        Export
+      </button>
+      <a href="/suppliers/new" class="btn btn-primary">
+        <span class="material-symbols-outlined">add</span>
+        Add Supplier
+      </a>
+    </div>
+  </div>
+
+  <!-- Search and Filters -->
+  <div class="card mb-6">
+    <div class="card-body">
+      <div class="search-bar">
+        <div class="search-input-wrapper">
+          <span class="material-symbols-outlined search-icon">search</span>
+          <input 
+            type="text" 
+            id="search-input"
+            class="search-input" 
+            placeholder="Search suppliers by name, contact, or email..."
+          />
+        </div>
+        <select id="status-filter" class="form-select" style="width: auto;">
+          <option value="all">All Suppliers</option>
+          <option value="active">Active Only</option>
+          <option value="inactive">Inactive Only</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading State -->
+  <div id="loading-state" class="loading-container">
+    <div class="spinner"></div>
+    <p style="margin-top: 1rem; color: var(--text-secondary);">Loading suppliers from Firestore...</p>
+  </div>
+
+  <!-- Error Display -->
+  <div id="error-display" class="hidden">
+    <div class="alert alert-danger mb-6">
+      <span class="material-symbols-outlined">error</span>
+      <div>
+        <strong>Error Loading Suppliers:</strong> <span id="error-message"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Suppliers Table -->
+  <div id="suppliers-content" class="card hidden">
+    <div class="card-header">
+      <h2>All Suppliers</h2>
+      <span class="badge badge-info" id="supplier-count">0 suppliers</span>
+    </div>
+    <div id="empty-state" class="empty-state hidden">
+      <span class="material-symbols-outlined empty-state-icon">store</span>
+      <h3>No Suppliers Yet</h3>
+      <p>Get started by adding your first supplier</p>
+      <a href="/suppliers/new" class="btn btn-primary" style="margin-top: 1rem;">
+        <span class="material-symbols-outlined">add</span>
+        Add Your First Supplier
+      </a>
+    </div>
+    <div id="table-container" class="table-container hidden">
+      <table>
+        <thead>
+          <tr>
+            <th>Supplier</th>
+            <th>Contact Person</th>
+            <th>Email</th>
+            <th>Phone</th>
+            <th>Status</th>
+            <th>Added</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="suppliers-tbody">
+          <!-- Populated by JavaScript -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Firestore Status -->
+  <div id="firestore-status" class="alert alert-success mt-6 hidden">
+    <span class="material-symbols-outlined">check_circle</span>
+    <div>
+      <strong>Connected to Firestore:</strong> <span id="status-message"></span>
+    </div>
+  </div>
+
+  <!-- View/Edit Supplier Modal -->
+  <div id="supplier-modal" class="modal-overlay hidden">
+    <div class="modal-container" style="max-width: 800px;">
+      <div class="modal-header">
+        <h2 id="modal-title">Supplier Details</h2>
+        <button class="btn-ghost" id="close-modal" style="padding: 0.5rem;">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+      <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+        <!-- View Mode -->
+        <div id="view-mode">
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem;">
+            <div class="field">
+              <label class="field-label">Supplier Name</label>
+              <div class="field-value" id="view-name"></div>
+            </div>
+            <div class="field">
+              <label class="field-label">Contact Person</label>
+              <div class="field-value" id="view-contact"></div>
+            </div>
+            <div class="field">
+              <label class="field-label">Email</label>
+              <div class="field-value" id="view-email"></div>
+            </div>
+            <div class="field">
+              <label class="field-label">Phone</label>
+              <div class="field-value" id="view-phone"></div>
+            </div>
+            <div class="field" style="grid-column: 1 / -1;">
+              <label class="field-label">Address</label>
+              <div class="field-value" id="view-address"></div>
+            </div>
+            <div class="field">
+              <label class="field-label">Status</label>
+              <div class="field-value" id="view-status"></div>
+            </div>
+            <div class="field">
+              <label class="field-label">Supplier ID</label>
+              <div class="field-value" id="view-id" style="font-family: monospace;"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Edit Mode (Hidden by default) -->
+        <form id="edit-mode" class="hidden">
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem;">
+            <div class="form-group" style="grid-column: 1 / -1;">
+              <label for="edit-name" class="form-label">Supplier Name <span style="color: #ef4444;">*</span></label>
+              <input type="text" id="edit-name" class="form-input" required />
+              <div id="edit-name-error" class="field-error hidden"></div>
+            </div>
+            <div class="form-group">
+              <label for="edit-contact" class="form-label">Contact Person <span style="color: #ef4444;">*</span></label>
+              <input type="text" id="edit-contact" class="form-input" required />
+              <div id="edit-contact-error" class="field-error hidden"></div>
+            </div>
+            <div class="form-group">
+              <label for="edit-email" class="form-label">Email <span style="color: #ef4444;">*</span></label>
+              <input type="email" id="edit-email" class="form-input" required />
+              <div id="edit-email-error" class="field-error hidden"></div>
+            </div>
+            <div class="form-group">
+              <label for="edit-phone" class="form-label">Phone <span style="color: #ef4444;">*</span></label>
+              <input type="tel" id="edit-phone" class="form-input" required />
+              <div id="edit-phone-error" class="field-error hidden"></div>
+            </div>
+            <div class="form-group" style="grid-column: 1 / -1;">
+              <label for="edit-address" class="form-label">Address <span style="color: #ef4444;">*</span></label>
+              <textarea id="edit-address" class="form-input" rows="3" required></textarea>
+              <div id="edit-address-error" class="field-error hidden"></div>
+            </div>
+            <div class="form-group">
+              <label for="edit-active" class="form-label">Status</label>
+              <select id="edit-active" class="form-input">
+                <option value="true">Active</option>
+                <option value="false">Inactive</option>
+              </select>
+            </div>
+          </div>
+          <div id="form-error" class="field-error hidden" style="margin-top: 1rem;"></div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <div id="view-mode-actions">
+          <button class="btn btn-secondary" id="edit-mode-btn">
+            <span class="material-symbols-outlined">edit</span>
+            Edit
+          </button>
+          <button class="btn btn-primary" id="modal-close-btn">Close</button>
+        </div>
+        <div id="edit-mode-actions" class="hidden">
+          <button class="btn btn-secondary" id="cancel-edit-btn">Cancel</button>
+          <button class="btn btn-primary" id="save-edit-btn">
+            <span class="material-symbols-outlined">save</span>
+            Save Changes
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</ModernLayout>
+
+<script>
+  import { supplierService } from '../../services/suppliers/SupplierService';
+  import type { Supplier } from '../../types/models';
+
+  // Elements
+  const loadingState = document.getElementById('loading-state')!;
+  const errorDisplay = document.getElementById('error-display')!;
+  const errorMessage = document.getElementById('error-message')!;
+  const suppliersContent = document.getElementById('suppliers-content')!;
+  const emptyState = document.getElementById('empty-state')!;
+  const tableContainer = document.getElementById('table-container')!;
+  const suppliersTbody = document.getElementById('suppliers-tbody')!;
+  const supplierCount = document.getElementById('supplier-count')!;
+  const firestoreStatus = document.getElementById('firestore-status')!;
+  const statusMessage = document.getElementById('status-message')!;
+  const searchInput = document.getElementById('search-input') as HTMLInputElement;
+  const statusFilter = document.getElementById('status-filter') as HTMLSelectElement;
+
+  let allSuppliers: Supplier[] = [];
+  let filteredSuppliers: Supplier[] = [];
+  let currentSupplier: Supplier | null = null;
+
+  // Format date helper
+  const formatDate = (date: Date) => {
+    return new Intl.DateTimeFormat('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    }).format(date);
+  };
+
+  // Render suppliers table
+  const renderSuppliers = (suppliers: Supplier[]) => {
+    suppliersTbody.innerHTML = '';
+    
+    if (suppliers.length === 0) {
+      emptyState.classList.remove('hidden');
+      tableContainer.classList.add('hidden');
+      return;
+    }
+
+    emptyState.classList.add('hidden');
+    tableContainer.classList.remove('hidden');
+
+    suppliers.forEach(supplier => {
+      const row = document.createElement('tr');
+      row.innerHTML = `
+        <td>
+          <div class="flex items-center gap-2">
+            <span class="material-symbols-outlined" style="color: var(--primary);">store</span>
+            <div>
+              <div class="font-semibold">${supplier.name}</div>
+              <div class="text-xs text-muted">${supplier.supplierId}</div>
+            </div>
+          </div>
+        </td>
+        <td>${supplier.contactPerson || '-'}</td>
+        <td>
+          ${supplier.email ? `<a href="mailto:${supplier.email}" class="text-sm" style="color: var(--primary);">${supplier.email}</a>` : '-'}
+        </td>
+        <td class="text-sm">${supplier.phone || '-'}</td>
+        <td>
+          ${supplier.isActive 
+            ? '<span class="badge badge-success">Active</span>' 
+            : '<span class="badge badge-danger">Inactive</span>'}
+        </td>
+        <td class="text-sm text-muted">${formatDate(supplier.createdAt)}</td>
+        <td>
+          <div class="flex gap-2">
+            <button class="btn-ghost view-btn" data-id="${supplier.supplierId}" style="padding: 0.5rem;" title="View details">
+              <span class="material-symbols-outlined" style="font-size: 20px;">visibility</span>
+            </button>
+            <button class="btn-ghost edit-btn" data-id="${supplier.supplierId}" style="padding: 0.5rem;" title="Edit">
+              <span class="material-symbols-outlined" style="font-size: 20px;">edit</span>
+            </button>
+          </div>
+        </td>
+      `;
+      suppliersTbody.appendChild(row);
+    });
+
+    supplierCount.textContent = `${suppliers.length} supplier${suppliers.length !== 1 ? 's' : ''}`;
+
+    // Add event listeners to view and edit buttons
+    document.querySelectorAll('.view-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const supplierId = (e.currentTarget as HTMLElement).getAttribute('data-id')!;
+        viewSupplier(supplierId);
+      });
+    });
+
+    document.querySelectorAll('.edit-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const supplierId = (e.currentTarget as HTMLElement).getAttribute('data-id')!;
+        editSupplier(supplierId);
+      });
+    });
+  };
+
+  // Filter suppliers
+  const filterSuppliers = () => {
+    const searchText = searchInput.value.toLowerCase().trim();
+    const status = statusFilter.value;
+
+    filteredSuppliers = allSuppliers.filter(supplier => {
+      // Status filter
+      if (status === 'active' && !supplier.isActive) return false;
+      if (status === 'inactive' && supplier.isActive) return false;
+
+      // Search filter
+      if (searchText) {
+        const nameMatch = supplier.name.toLowerCase().includes(searchText);
+        const contactMatch = (supplier.contactPerson || '').toLowerCase().includes(searchText);
+        const emailMatch = (supplier.email || '').toLowerCase().includes(searchText);
+        return nameMatch || contactMatch || emailMatch;
+      }
+
+      return true;
+    });
+
+    renderSuppliers(filteredSuppliers);
+  };
+
+  // View supplier details
+  const viewSupplier = (supplierId: string) => {
+    currentSupplier = allSuppliers.find(s => s.supplierId === supplierId) || null;
+    if (!currentSupplier) {
+      alert('Supplier not found');
+      return;
+    }
+
+    // Populate view mode
+    document.getElementById('view-name')!.textContent = currentSupplier.name;
+    document.getElementById('view-contact')!.textContent = currentSupplier.contactPerson;
+    document.getElementById('view-email')!.innerHTML = `<a href="mailto:${currentSupplier.email}" style="color: var(--primary);">${currentSupplier.email}</a>`;
+    document.getElementById('view-phone')!.innerHTML = `<a href="tel:${currentSupplier.phone}" style="color: var(--primary);">${currentSupplier.phone}</a>`;
+    document.getElementById('view-address')!.textContent = currentSupplier.address;
+    document.getElementById('view-status')!.innerHTML = currentSupplier.isActive 
+      ? '<span class="badge badge-success">Active</span>' 
+      : '<span class="badge badge-danger">Inactive</span>';
+    document.getElementById('view-id')!.textContent = currentSupplier.supplierId;
+
+    // Show modal in view mode
+    document.getElementById('modal-title')!.textContent = 'Supplier Details';
+    document.getElementById('view-mode')!.classList.remove('hidden');
+    document.getElementById('edit-mode')!.classList.add('hidden');
+    document.getElementById('view-mode-actions')!.classList.remove('hidden');
+    document.getElementById('edit-mode-actions')!.classList.add('hidden');
+    document.getElementById('supplier-modal')!.classList.remove('hidden');
+  };
+
+  // Edit supplier
+  const editSupplier = (supplierId: string) => {
+    currentSupplier = allSuppliers.find(s => s.supplierId === supplierId) || null;
+    if (!currentSupplier) {
+      alert('Supplier not found');
+      return;
+    }
+
+    // Populate edit form
+    (document.getElementById('edit-name') as HTMLInputElement).value = currentSupplier.name;
+    (document.getElementById('edit-contact') as HTMLInputElement).value = currentSupplier.contactPerson;
+    (document.getElementById('edit-email') as HTMLInputElement).value = currentSupplier.email;
+    (document.getElementById('edit-phone') as HTMLInputElement).value = currentSupplier.phone;
+    (document.getElementById('edit-address') as HTMLTextAreaElement).value = currentSupplier.address;
+    (document.getElementById('edit-active') as HTMLSelectElement).value = currentSupplier.isActive.toString();
+
+    // Show modal in edit mode
+    document.getElementById('modal-title')!.textContent = 'Edit Supplier';
+    document.getElementById('view-mode')!.classList.add('hidden');
+    document.getElementById('edit-mode')!.classList.remove('hidden');
+    document.getElementById('view-mode-actions')!.classList.add('hidden');
+    document.getElementById('edit-mode-actions')!.classList.remove('hidden');
+    document.getElementById('supplier-modal')!.classList.remove('hidden');
+  };
+
+  // Save supplier changes
+  const saveSupplier = async () => {
+    if (!currentSupplier) return;
+
+    // Clear previous errors
+    document.querySelectorAll('.field-error').forEach(el => el.classList.add('hidden'));
+
+    // Get form values
+    const name = (document.getElementById('edit-name') as HTMLInputElement).value.trim();
+    const contactPerson = (document.getElementById('edit-contact') as HTMLInputElement).value.trim();
+    const email = (document.getElementById('edit-email') as HTMLInputElement).value.trim();
+    const phone = (document.getElementById('edit-phone') as HTMLInputElement).value.trim();
+    const address = (document.getElementById('edit-address') as HTMLTextAreaElement).value.trim();
+    const isActive = (document.getElementById('edit-active') as HTMLSelectElement).value === 'true';
+
+    // Validate
+    let hasError = false;
+    if (!name) {
+      document.getElementById('edit-name-error')!.textContent = 'Supplier name is required';
+      document.getElementById('edit-name-error')!.classList.remove('hidden');
+      hasError = true;
+    }
+    if (!contactPerson) {
+      document.getElementById('edit-contact-error')!.textContent = 'Contact person is required';
+      document.getElementById('edit-contact-error')!.classList.remove('hidden');
+      hasError = true;
+    }
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      document.getElementById('edit-email-error')!.textContent = 'Valid email is required';
+      document.getElementById('edit-email-error')!.classList.remove('hidden');
+      hasError = true;
+    }
+    if (!phone) {
+      document.getElementById('edit-phone-error')!.textContent = 'Phone is required';
+      document.getElementById('edit-phone-error')!.classList.remove('hidden');
+      hasError = true;
+    }
+    if (!address) {
+      document.getElementById('edit-address-error')!.textContent = 'Address is required';
+      document.getElementById('edit-address-error')!.classList.remove('hidden');
+      hasError = true;
+    }
+
+    if (hasError) return;
+
+    try {
+      // Disable save button
+      const saveBtn = document.getElementById('save-edit-btn') as HTMLButtonElement;
+      saveBtn.disabled = true;
+      saveBtn.innerHTML = '<span class="material-symbols-outlined spinning">refresh</span> Saving...';
+
+      // Update supplier
+      await supplierService.updateSupplier(currentSupplier.supplierId, {
+        name,
+        contactPerson,
+        email,
+        phone,
+        address,
+        isActive,
+      });
+
+      // Reload suppliers
+      await loadSuppliers();
+
+      // Close modal
+      document.getElementById('supplier-modal')!.classList.add('hidden');
+
+      alert('Supplier updated successfully!');
+    } catch (error) {
+      console.error('Error updating supplier:', error);
+      const formError = document.getElementById('form-error')!;
+      formError.textContent = error instanceof Error ? error.message : 'Failed to update supplier';
+      formError.classList.remove('hidden');
+    } finally {
+      const saveBtn = document.getElementById('save-edit-btn') as HTMLButtonElement;
+      saveBtn.disabled = false;
+      saveBtn.innerHTML = '<span class="material-symbols-outlined">save</span> Save Changes';
+    }
+  };
+
+  // Load suppliers from Firestore
+  const loadSuppliers = async () => {
+    try {
+      loadingState.classList.remove('hidden');
+      errorDisplay.classList.add('hidden');
+      suppliersContent.classList.add('hidden');
+      firestoreStatus.classList.add('hidden');
+
+      // Fetch all suppliers (include inactive)
+      allSuppliers = await supplierService.getAllSuppliers(true);
+      filteredSuppliers = allSuppliers;
+
+      // Show content
+      loadingState.classList.add('hidden');
+      suppliersContent.classList.remove('hidden');
+      firestoreStatus.classList.remove('hidden');
+
+      // Render suppliers
+      renderSuppliers(filteredSuppliers);
+
+      // Update status message
+      statusMessage.textContent = `Displaying ${allSuppliers.length} supplier(s) from your database. All changes are saved automatically.`;
+
+    } catch (err) {
+      loadingState.classList.add('hidden');
+      errorDisplay.classList.remove('hidden');
+      
+      const errMsg = err instanceof Error ? err.message : 'Failed to load suppliers';
+      errorMessage.textContent = errMsg;
+      
+      console.error('Error loading suppliers:', err);
+    }
+  };
+
+  // Event listeners
+  searchInput.addEventListener('input', filterSuppliers);
+  statusFilter.addEventListener('change', filterSuppliers);
+
+  // Modal close handlers
+  document.getElementById('close-modal')?.addEventListener('click', () => {
+    document.getElementById('supplier-modal')?.classList.add('hidden');
+  });
+
+  document.getElementById('modal-close-btn')?.addEventListener('click', () => {
+    document.getElementById('supplier-modal')?.classList.add('hidden');
+  });
+
+  document.getElementById('supplier-modal')?.addEventListener('click', (e) => {
+    if ((e.target as HTMLElement).id === 'supplier-modal') {
+      document.getElementById('supplier-modal')?.classList.add('hidden');
+    }
+  });
+
+  // Edit mode toggle
+  document.getElementById('edit-mode-btn')?.addEventListener('click', () => {
+    if (currentSupplier) {
+      editSupplier(currentSupplier.supplierId);
+    }
+  });
+
+  document.getElementById('cancel-edit-btn')?.addEventListener('click', () => {
+    if (currentSupplier) {
+      viewSupplier(currentSupplier.supplierId);
+    }
+  });
+
+  document.getElementById('save-edit-btn')?.addEventListener('click', saveSupplier);
+
+  // Load suppliers on page load
+  loadSuppliers();
+</script>
+
+<style>
+  .loading-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 2rem;
+  }
+
+  .spinner {
+    width: 48px;
+    height: 48px;
+    border: 4px solid #e5e7eb;
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .spinning {
+    animation: spin 1s linear infinite;
+  }
+
+  .hidden {
+    display: none !important;
+  }
+
+  /* Modal styles */
+  .modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 1rem;
+  }
+
+  .modal-container {
+    background: var(--bg-primary);
+    border-radius: 0.75rem;
+    box-shadow: var(--shadow-xl);
+    width: 100%;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.5rem;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .modal-header h2 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 0;
+  }
+
+  .modal-body {
+    padding: 1.5rem;
+    overflow-y: auto;
+  }
+
+  .modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    padding: 1.5rem;
+    border-top: 1px solid var(--border-color);
+  }
+
+  #view-mode-actions, #edit-mode-actions {
+    display: flex;
+    gap: 0.75rem;
+  }
+
+  .field {
+    margin-bottom: 0.5rem;
+  }
+
+  .field-label {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-bottom: 0.25rem;
+  }
+
+  .field-value {
+    font-size: 1rem;
+    color: var(--text-primary);
+  }
+
+  .form-group {
+    margin-bottom: 1rem;
+  }
+
+  .form-label {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-bottom: 0.25rem;
+  }
+
+  .form-input {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+  }
+
+  .form-input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+  }
+
+  .field-error {
+    color: #ef4444;
+    font-size: 0.75rem;
+    margin-top: 0.25rem;
+  }
+</style>

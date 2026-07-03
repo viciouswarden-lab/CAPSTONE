@@ -1,0 +1,31 @@
+---
+/**
+ * CAPSTONE Demo Login - Automatic Access
+ * 
+ * This page automatically creates a demo session and redirects to dashboard.
+ * Use this for CAPSTONE presentation to bypass Firebase authentication.
+ */
+
+import { SessionManager } from '../services/session/SessionManager';
+
+// Create demo session data matching expected format
+const demoSession = {
+  userId: 'demo-user-001',
+  email: 'demo@tpro.com',
+  role: 'Administrator',
+  token: 'demo-token-' + Date.now(),
+  expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+};
+
+// Use SessionManager to set session properly
+SessionManager.setSession(Astro.cookies, {
+  userId: demoSession.userId,
+  email: demoSession.email,
+  role: demoSession.role as any,
+  token: demoSession.token,
+  expiresAt: new Date(demoSession.expiresAt),
+});
+
+// Redirect to dashboard
+return Astro.redirect('/');
+---

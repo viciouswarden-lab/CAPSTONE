@@ -1,0 +1,215 @@
+---
+/**
+ * Pricing Management Page - Modern Version
+ * 
+ * Displays products with current pricing across tiers.
+ * Shows supplier costs and calculated margins.
+ */
+
+import ModernLayout from '../../layouts/ModernLayout.astro';
+
+// Mock data for demo mode
+const mockPricing = [
+  {
+    sku: 'HW-HAM-001',
+    productName: 'Heavy Duty Hammer 16oz',
+    category: 'Hand Tools',
+    supplierCost: 45.00,
+    standardPrice: 67.50,
+    standardMargin: 50.0,
+    wholesalePrice: 58.50,
+    wholesaleMargin: 30.0,
+  },
+  {
+    sku: 'PT-DRL-002',
+    productName: 'Cordless Power Drill 18V',
+    category: 'Power Tools',
+    supplierCost: 280.00,
+    standardPrice: 420.00,
+    standardMargin: 50.0,
+    wholesalePrice: 350.00,
+    wholesaleMargin: 25.0,
+  },
+  {
+    sku: 'HW-SCR-003',
+    productName: 'Screwdriver Set (10pc)',
+    category: 'Hand Tools',
+    supplierCost: 120.00,
+    standardPrice: 180.00,
+    standardMargin: 50.0,
+    wholesalePrice: 156.00,
+    wholesaleMargin: 30.0,
+  },
+  {
+    sku: 'PT-SAW-004',
+    productName: 'Circular Saw 7.25"',
+    category: 'Power Tools',
+    supplierCost: 550.00,
+    standardPrice: 825.00,
+    standardMargin: 50.0,
+    wholesalePrice: 715.00,
+    wholesaleMargin: 30.0,
+  },
+];
+
+const totalProducts = mockPricing.length;
+const avgMargin = mockPricing.reduce((sum, p) => sum + p.standardMargin, 0) / totalProducts;
+---
+
+<ModernLayout title="Pricing">
+  <!-- Page Header -->
+  <div class="page-header">
+    <div class="page-header-content">
+      <h1>Pricing Management</h1>
+      <p>Manage product pricing and margins across all tiers</p>
+    </div>
+    <div class="page-header-actions">
+      <button class="btn btn-secondary">
+        <span class="material-symbols-outlined">download</span>
+        Export
+      </button>
+      <button class="btn btn-primary">
+        <span class="material-symbols-outlined">edit</span>
+        Update Prices
+      </button>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-icon-wrapper" style="background: #dbeafe; color: #1e40af;">
+        <span class="material-symbols-outlined">sell</span>
+      </div>
+      <div class="stat-content">
+        <h3>Total Products</h3>
+        <div class="stat-value">{totalProducts}</div>
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-icon-wrapper" style="background: #d1fae5; color: #059669;">
+        <span class="material-symbols-outlined">trending_up</span>
+      </div>
+      <div class="stat-content">
+        <h3>Avg Margin</h3>
+        <div class="stat-value">{avgMargin.toFixed(1)}%</div>
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-icon-wrapper" style="background: #fef3c7; color: #d97706;">
+        <span class="material-symbols-outlined">inventory</span>
+      </div>
+      <div class="stat-content">
+        <h3>Standard Tier</h3>
+        <div class="stat-value">{mockPricing.filter(p => p.standardPrice).length}</div>
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-icon-wrapper" style="background: #e9d5ff; color: #7c3aed;">
+        <span class="material-symbols-outlined">local_shipping</span>
+      </div>
+      <div class="stat-content">
+        <h3>Wholesale Tier</h3>
+        <div class="stat-value">{mockPricing.filter(p => p.wholesalePrice).length}</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Search and Filters -->
+  <div class="card mb-6">
+    <div class="card-body">
+      <div class="search-bar">
+        <div class="search-input-wrapper">
+          <span class="material-symbols-outlined search-icon">search</span>
+          <input 
+            type="text" 
+            class="search-input" 
+            placeholder="Search by SKU or product name..."
+          />
+        </div>
+        <select class="form-select" style="width: auto;">
+          <option value="all">All Categories</option>
+          <option value="hand-tools">Hand Tools</option>
+          <option value="power-tools">Power Tools</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pricing Table -->
+  <div class="card">
+    <div class="card-header">
+      <h2>Product Pricing</h2>
+      <span class="badge badge-info">{mockPricing.length} products</span>
+    </div>
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>Product</th>
+            <th>Category</th>
+            <th>Supplier Cost</th>
+            <th>Standard Price</th>
+            <th>Standard Margin</th>
+            <th>Wholesale Price</th>
+            <th>Wholesale Margin</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {mockPricing.map(product => (
+            <tr>
+              <td>
+                <div class="flex items-center gap-2">
+                  <span class="material-symbols-outlined" style="color: var(--primary);">sell</span>
+                  <div>
+                    <div class="font-semibold">{product.productName}</div>
+                    <div class="text-xs text-muted">{product.sku}</div>
+                  </div>
+                </div>
+              </td>
+              <td class="text-sm">{product.category}</td>
+              <td>
+                <span class="font-semibold">₱{product.supplierCost.toFixed(2)}</span>
+              </td>
+              <td>
+                <span class="font-semibold" style="color: var(--secondary);">₱{product.standardPrice.toFixed(2)}</span>
+              </td>
+              <td>
+                <span class="badge badge-success">{product.standardMargin.toFixed(1)}%</span>
+              </td>
+              <td>
+                <span class="font-semibold" style="color: var(--secondary);">₱{product.wholesalePrice.toFixed(2)}</span>
+              </td>
+              <td>
+                <span class="badge badge-info">{product.wholesaleMargin.toFixed(1)}%</span>
+              </td>
+              <td>
+                <div class="flex gap-2">
+                  <button class="btn-ghost" style="padding: 0.5rem;" title="Edit pricing">
+                    <span class="material-symbols-outlined" style="font-size: 20px;">edit</span>
+                  </button>
+                  <button class="btn-ghost" style="padding: 0.5rem;" title="Price history">
+                    <span class="material-symbols-outlined" style="font-size: 20px;">history</span>
+                  </button>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Demo Notice -->
+  <div class="alert alert-info mt-6">
+    <span class="material-symbols-outlined">info</span>
+    <div>
+      <strong>CAPSTONE Demo Mode:</strong> Showing mock pricing data. 
+      With Firebase connected, this would display real pricing with margin calculations and bulk update features.
+    </div>
+  </div>
+</ModernLayout>

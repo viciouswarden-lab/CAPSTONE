@@ -1,0 +1,706 @@
+---
+/**
+ * Inventory Page - Firestore Connected
+ * 
+ * Displays current inventory levels with stock status.
+ * Uses client-side rendering for real-time Firestore updates.
+ */
+
+import ModernLayout from '../../layouts/ModernLayout.astro';
+
+// Disable caching to ensure fresh data on every visit
+Astro.response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+---
+
+<ModernLayout title="Inventory">
+  <!-- Page Header -->
+  <div class="page-header">
+    <div class="page-header-content">
+      <h1>Inventory</h1>
+      <p>Monitor stock levels and manage inventory</p>
+    </div>
+    <div class="page-header-actions">
+      <a href="/inventory/adjust" class="btn btn-secondary">
+        <span class="material-symbols-outlined">tune</span>
+        Adjust Stock
+      </a>
+      <button class="btn btn-primary">
+        <span class="material-symbols-outlined">download</span>
+        Export
+      </button>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="stats-grid" id="stats-grid">
+    <div class="stat-card">
+      <div class="stat-icon-wrapper" style="background: #dbeafe; color: #1e40af;">
+        <span class="material-symbols-outlined">inventory_2</span>
+      </div>
+      <div class="stat-content">
+        <h3>Total Items</h3>
+        <div class="stat-value" id="total-items">-</div>
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-icon-wrapper" style="background: #d1fae5; color: #059669;">
+        <span class="material-symbols-outlined">check_circle</span>
+      </div>
+      <div class="stat-content">
+        <h3>In Stock</h3>
+        <div class="stat-value" id="in-stock">-</div>
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-icon-wrapper" style="background: #fed7aa; color: #92400e;">
+        <span class="material-symbols-outlined">warning</span>
+      </div>
+      <div class="stat-content">
+        <h3>Low Stock</h3>
+        <div class="stat-value" id="low-stock">-</div>
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-icon-wrapper" style="background: #fee2e2; color: #991b1b;">
+        <span class="material-symbols-outlined">cancel</span>
+      </div>
+      <div class="stat-content">
+        <h3>Out of Stock</h3>
+        <div class="stat-value" id="out-of-stock">-</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Search and Filters -->
+  <div class="card mb-6">
+    <div class="card-body">
+      <div class="search-bar">
+        <div class="search-input-wrapper">
+          <span class="material-symbols-outlined search-icon">search</span>
+          <input 
+            type="text" 
+            id="search-input"
+            class="search-input" 
+            placeholder="Search inventory by SKU or location..."
+          />
+        </div>
+        <select id="status-filter" class="form-select" style="width: auto;">
+          <option value="all">All Status</option>
+          <option value="in-stock">In Stock</option>
+          <option value="low-stock">Low Stock</option>
+          <option value="out-of-stock">Out of Stock</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading State -->
+  <div id="loading-state" class="loading-container">
+    <div class="spinner"></div>
+    <p style="margin-top: 1rem; color: var(--text-secondary);">Loading products from Firestore...</p>
+  </div>
+
+  <!-- Error Display -->
+  <div id="error-display" class="hidden">
+    <div class="alert alert-danger mb-6">
+      <span class="material-symbols-outlined">error</span>
+      <div>
+        <strong>Error Loading Inventory:</strong> <span id="error-message"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Inventory Table -->
+  <div id="inventory-content" class="card hidden">
+    <div class="card-header">
+      <h2>Product Inventory</h2>
+      <span class="badge badge-info" id="inventory-count">0 items</span>
+    </div>
+    <div id="empty-state" class="empty-state hidden">
+      <span class="material-symbols-outlined empty-state-icon">inventory_2</span>
+      <h3>No Products Yet</h3>
+      <p>Add products to your catalog to start tracking inventory</p>
+      <a href="/products" class="btn btn-primary" style="margin-top: 1rem;">
+        <span class="material-symbols-outlined">add</span>
+        Go to Products
+      </a>
+    </div>
+    <div id="table-container" class="table-container hidden">
+      <table>
+        <thead>
+          <tr>
+            <th>Product</th>
+            <th>SKU</th>
+            <th>Category</th>
+            <th>On Hand</th>
+            <th>Reorder Point</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="inventory-tbody">
+          <!-- Populated by JavaScript -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Firestore Status -->
+  <div id="firestore-status" class="alert alert-success mt-6 hidden">
+    <span class="material-symbols-outlined">check_circle</span>
+    <div>
+      <strong>Connected to Firestore:</strong> <span id="status-message"></span>
+    </div>
+  </div>
+
+  <!-- Edit Inventory Modal -->
+  <div id="edit-modal" class="modal-overlay hidden">
+    <div class="modal-container" style="max-width: 600px;">
+      <div class="modal-header">
+        <h2>Edit Inventory</h2>
+        <button class="btn-ghost" id="close-modal" style="padding: 0.5rem;">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+      <div class="modal-body">
+        <form id="edit-form">
+          <div style="margin-bottom: 1.5rem; padding: 1rem; background: var(--bg-secondary); border-radius: 0.5rem;">
+            <div style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 0.25rem;">Product</div>
+            <div style="font-weight: 600; font-size: 1.125rem;" id="modal-product-name"></div>
+            <div style="font-family: monospace; font-size: 0.875rem; color: var(--text-secondary);" id="modal-product-sku"></div>
+          </div>
+
+          <div class="form-group">
+            <label for="edit-quantity" class="form-label">Quantity on Hand <span style="color: #ef4444;">*</span></label>
+            <input type="number" id="edit-quantity" class="form-input" min="0" required />
+            <div id="edit-quantity-error" class="field-error hidden"></div>
+          </div>
+
+          <div class="form-group">
+            <label for="edit-reorder" class="form-label">Reorder Point <span style="color: #ef4444;">*</span></label>
+            <input type="number" id="edit-reorder" class="form-input" min="0" required />
+            <small style="color: var(--text-secondary); font-size: 0.75rem;">Minimum stock level before reordering</small>
+            <div id="edit-reorder-error" class="field-error hidden"></div>
+          </div>
+
+          <div id="form-error" class="field-error hidden" style="margin-top: 1rem;"></div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="cancel-btn">Cancel</button>
+        <button class="btn btn-primary" id="save-btn">
+          <span class="material-symbols-outlined">save</span>
+          Save Changes
+        </button>
+      </div>
+    </div>
+  </div>
+</ModernLayout>
+
+<script>
+  import { collection, getDocs, query, orderBy, where, doc, updateDoc } from 'firebase/firestore';
+  import { db } from '../../services/firebase';
+
+  // Elements
+  const loadingState = document.getElementById('loading-state')!;
+  const errorDisplay = document.getElementById('error-display')!;
+  const errorMessage = document.getElementById('error-message')!;
+  const inventoryContent = document.getElementById('inventory-content')!;
+  const emptyState = document.getElementById('empty-state')!;
+  const tableContainer = document.getElementById('table-container')!;
+  const inventoryTbody = document.getElementById('inventory-tbody')!;
+  const inventoryCount = document.getElementById('inventory-count')!;
+  const firestoreStatus = document.getElementById('firestore-status')!;
+  const statusMessage = document.getElementById('status-message')!;
+  const searchInput = document.getElementById('search-input') as HTMLInputElement;
+  const statusFilter = document.getElementById('status-filter') as HTMLSelectElement;
+
+  // Stats elements
+  const totalItemsEl = document.getElementById('total-items')!;
+  const inStockEl = document.getElementById('in-stock')!;
+  const lowStockEl = document.getElementById('low-stock')!;
+  const outOfStockEl = document.getElementById('out-of-stock')!;
+
+  let allProducts: any[] = [];
+  let filteredProducts: any[] = [];
+  let currentProduct: any = null;
+
+  // Format date helper
+  const formatDate = (date: Date) => {
+    return new Intl.DateTimeFormat('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    }).format(date);
+  };
+
+  // Get stock status badge
+  const getStatusBadge = (isActive: boolean) => {
+    if (isActive) {
+      return '<span class="badge badge-success">Active</span>';
+    } else {
+      return '<span class="badge badge-secondary">Inactive</span>';
+    }
+  };
+
+  // Get stock level status
+  const getStockLevel = (quantityOnHand: number, reorderPoint: number) => {
+    if (quantityOnHand === 0) return 'out-of-stock';
+    if (quantityOnHand < reorderPoint) return 'low-stock';
+    return 'in-stock';
+  };
+
+  // Update stats
+  const updateStats = (products: any[]) => {
+    const inStock = products.filter(p => getStockLevel(p.quantityOnHand || 0, p.reorderPoint) === 'in-stock').length;
+    const lowStock = products.filter(p => getStockLevel(p.quantityOnHand || 0, p.reorderPoint) === 'low-stock').length;
+    const outOfStock = products.filter(p => getStockLevel(p.quantityOnHand || 0, p.reorderPoint) === 'out-of-stock').length;
+    
+    totalItemsEl.textContent = products.length.toString();
+    inStockEl.textContent = inStock.toString();
+    lowStockEl.textContent = lowStock.toString();
+    outOfStockEl.textContent = outOfStock.toString();
+  };
+
+  // Render inventory table
+  const renderInventory = (products: any[]) => {
+    inventoryTbody.innerHTML = '';
+    
+    if (products.length === 0) {
+      emptyState.classList.remove('hidden');
+      tableContainer.classList.add('hidden');
+      return;
+    }
+
+    emptyState.classList.add('hidden');
+    tableContainer.classList.remove('hidden');
+
+    products.forEach(product => {
+      const statusBadge = getStatusBadge(product.isActive);
+      const supplierCount = product.supplierMappings?.length || 0;
+      const quantityOnHand = product.quantityOnHand || 0;
+      
+      // Determine stock status color
+      let stockBadgeClass = 'badge-success';
+      let stockBadgeColor = '#10b981';
+      if (quantityOnHand === 0) {
+        stockBadgeClass = 'badge-danger';
+        stockBadgeColor = '#ef4444';
+      } else if (quantityOnHand < product.reorderPoint) {
+        stockBadgeClass = 'badge-warning';
+        stockBadgeColor = '#f59e0b';
+      }
+
+      const row = document.createElement('tr');
+      row.innerHTML = `
+        <td>
+          <div class="flex items-center gap-2">
+            <span class="material-symbols-outlined" style="color: var(--primary);">inventory_2</span>
+            <div>
+              <div class="font-semibold">${product.description}</div>
+              <div class="text-xs text-muted">${supplierCount} supplier${supplierCount !== 1 ? 's' : ''}</div>
+            </div>
+          </div>
+        </td>
+        <td class="font-mono font-semibold">${product.sku}</td>
+        <td class="text-sm">${product.category}</td>
+        <td class="text-center">
+          <span class="badge ${stockBadgeClass}" style="font-size: 1rem; font-weight: 700; background: ${stockBadgeColor}20; color: ${stockBadgeColor}; border: 1px solid ${stockBadgeColor}40;">
+            ${quantityOnHand}
+          </span>
+        </td>
+        <td class="text-center">
+          <span class="badge badge-warning">${product.reorderPoint}</span>
+        </td>
+        <td>${statusBadge}</td>
+        <td>
+          <div class="flex gap-2">
+            <button class="btn-ghost edit-btn" data-sku="${product.sku}" style="padding: 0.5rem;" title="Edit inventory">
+              <span class="material-symbols-outlined" style="font-size: 20px;">edit</span>
+            </button>
+            <button class="btn-ghost view-btn" data-sku="${product.sku}" style="padding: 0.5rem;" title="View details">
+              <span class="material-symbols-outlined" style="font-size: 20px;">visibility</span>
+            </button>
+          </div>
+        </td>
+      `;
+      inventoryTbody.appendChild(row);
+    });
+
+    inventoryCount.textContent = `${products.length} product${products.length !== 1 ? 's' : ''}`;
+
+    // Add event listeners to edit buttons
+    document.querySelectorAll('.edit-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const sku = (e.currentTarget as HTMLElement).getAttribute('data-sku')!;
+        openEditModal(sku);
+      });
+    });
+
+    // Add event listeners to view buttons
+    document.querySelectorAll('.view-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const sku = (e.currentTarget as HTMLElement).getAttribute('data-sku')!;
+        window.location.href = `/products?sku=${sku}`;
+      });
+    });
+  };
+
+  // Filter inventory
+  const filterInventory = () => {
+    const searchText = searchInput.value.toLowerCase().trim();
+    const status = statusFilter.value;
+
+    filteredProducts = allProducts.filter(product => {
+      // Status filter based on stock level
+      const stockLevel = getStockLevel(product.quantityOnHand || 0, product.reorderPoint);
+      
+      if (status === 'in-stock' && stockLevel !== 'in-stock') return false;
+      if (status === 'low-stock' && stockLevel !== 'low-stock') return false;
+      if (status === 'out-of-stock' && stockLevel !== 'out-of-stock') return false;
+
+      // Search filter
+      if (searchText) {
+        const skuMatch = product.sku.toLowerCase().includes(searchText);
+        const descMatch = product.description.toLowerCase().includes(searchText);
+        const categoryMatch = product.category.toLowerCase().includes(searchText);
+        return skuMatch || descMatch || categoryMatch;
+      }
+
+      return true;
+    });
+
+    renderInventory(filteredProducts);
+  };
+
+  // Open edit modal
+  const openEditModal = (sku: string) => {
+    currentProduct = allProducts.find(p => p.sku === sku);
+    if (!currentProduct) {
+      alert('Product not found');
+      return;
+    }
+
+    // Populate modal
+    document.getElementById('modal-product-name')!.textContent = currentProduct.description;
+    document.getElementById('modal-product-sku')!.textContent = `SKU: ${currentProduct.sku}`;
+    (document.getElementById('edit-quantity') as HTMLInputElement).value = currentProduct.quantityOnHand.toString();
+    (document.getElementById('edit-reorder') as HTMLInputElement).value = currentProduct.reorderPoint.toString();
+
+    // Clear errors
+    document.querySelectorAll('.field-error').forEach(el => el.classList.add('hidden'));
+
+    // Show modal
+    document.getElementById('edit-modal')!.classList.remove('hidden');
+  };
+
+  // Save inventory changes
+  const saveInventory = async () => {
+    if (!currentProduct) return;
+
+    // Clear previous errors
+    document.querySelectorAll('.field-error').forEach(el => el.classList.add('hidden'));
+
+    // Get form values
+    const quantity = parseInt((document.getElementById('edit-quantity') as HTMLInputElement).value);
+    const reorderPoint = parseInt((document.getElementById('edit-reorder') as HTMLInputElement).value);
+
+    // Validate
+    let hasError = false;
+    if (isNaN(quantity) || quantity < 0) {
+      document.getElementById('edit-quantity-error')!.textContent = 'Valid quantity is required';
+      document.getElementById('edit-quantity-error')!.classList.remove('hidden');
+      hasError = true;
+    }
+    if (isNaN(reorderPoint) || reorderPoint < 0) {
+      document.getElementById('edit-reorder-error')!.textContent = 'Valid reorder point is required';
+      document.getElementById('edit-reorder-error')!.classList.remove('hidden');
+      hasError = true;
+    }
+
+    if (hasError) return;
+
+    try {
+      // Disable save button
+      const saveBtn = document.getElementById('save-btn') as HTMLButtonElement;
+      saveBtn.disabled = true;
+      saveBtn.innerHTML = '<span class="material-symbols-outlined spinning">refresh</span> Saving...';
+
+      if (!db) {
+        throw new Error('Firestore not initialized');
+      }
+
+      // Update product reorder point
+      const productRef = doc(db, 'products', currentProduct.id);
+      await updateDoc(productRef, {
+        reorderPoint: reorderPoint
+      });
+
+      // Update inventory quantity (find or create inventory record)
+      const inventoryRef = collection(db, 'inventory');
+      const invQuery = query(inventoryRef, where('sku', '==', currentProduct.sku));
+      const invSnapshot = await getDocs(invQuery);
+
+      if (!invSnapshot.empty) {
+        // Update existing inventory record(s)
+        for (const invDoc of invSnapshot.docs) {
+          await updateDoc(doc(db, 'inventory', invDoc.id), {
+            quantityOnHand: quantity
+          });
+        }
+      }
+
+      // Reload inventory
+      await loadInventory();
+
+      // Close modal
+      document.getElementById('edit-modal')!.classList.add('hidden');
+
+      alert('Inventory updated successfully!');
+    } catch (error) {
+      console.error('Error updating inventory:', error);
+      const formError = document.getElementById('form-error')!;
+      formError.textContent = error instanceof Error ? error.message : 'Failed to update inventory';
+      formError.classList.remove('hidden');
+    } finally {
+      const saveBtn = document.getElementById('save-btn') as HTMLButtonElement;
+      saveBtn.disabled = false;
+      saveBtn.innerHTML = '<span class="material-symbols-outlined">save</span> Save Changes';
+    }
+  };
+
+  // Load products from Firestore
+  const loadInventory = async () => {
+    try {
+      loadingState.classList.remove('hidden');
+      errorDisplay.classList.add('hidden');
+      inventoryContent.classList.add('hidden');
+      firestoreStatus.classList.add('hidden');
+
+      if (!db) {
+        throw new Error('Firestore not initialized');
+      }
+
+      // Fetch products from Firestore
+      const productsRef = collection(db, 'products');
+      const q = query(productsRef, orderBy('sku', 'asc'));
+      const querySnapshot = await getDocs(q);
+
+      allProducts = [];
+      
+      // Fetch inventory quantities for each product
+      for (const doc of querySnapshot.docs) {
+        const productData = doc.data();
+        
+        // Get quantity on hand from inventory (sum across all locations)
+        let totalQuantity = 0;
+        try {
+          const inventoryRef = collection(db!, 'inventory');
+          const invQuery = query(inventoryRef, where('sku', '==', productData.sku));
+          const invSnapshot = await getDocs(invQuery);
+          
+          invSnapshot.forEach(invDoc => {
+            totalQuantity += invDoc.data().quantityOnHand || 0;
+          });
+        } catch (err) {
+          console.warn(`Could not fetch inventory for ${productData.sku}:`, err);
+        }
+
+        allProducts.push({
+          id: doc.id,
+          sku: productData.sku,
+          description: productData.description,
+          category: productData.category,
+          unitOfMeasure: productData.unitOfMeasure,
+          reorderPoint: productData.reorderPoint,
+          isActive: productData.isActive,
+          createdAt: productData.createdAt,
+          updatedAt: productData.updatedAt,
+          supplierMappings: productData.supplierMappings || [],
+          quantityOnHand: totalQuantity
+        });
+      }
+
+      filteredProducts = allProducts;
+
+      // Show content
+      loadingState.classList.add('hidden');
+      inventoryContent.classList.remove('hidden');
+      firestoreStatus.classList.remove('hidden');
+
+      // Update stats
+      updateStats(allProducts);
+
+      // Render inventory
+      renderInventory(filteredProducts);
+
+      // Update status message
+      statusMessage.textContent = `Displaying ${allProducts.length} product(s) from your catalog.`;
+
+    } catch (err) {
+      loadingState.classList.add('hidden');
+      errorDisplay.classList.remove('hidden');
+      
+      const errMsg = err instanceof Error ? err.message : 'Failed to load products';
+      errorMessage.textContent = errMsg;
+      
+      console.error('Error loading products:', err);
+    }
+  };
+
+  // Event listeners
+  searchInput.addEventListener('input', filterInventory);
+  statusFilter.addEventListener('change', filterInventory);
+
+  // Modal event listeners
+  document.getElementById('close-modal')!.addEventListener('click', () => {
+    document.getElementById('edit-modal')!.classList.add('hidden');
+  });
+
+  document.getElementById('cancel-btn')!.addEventListener('click', () => {
+    document.getElementById('edit-modal')!.classList.add('hidden');
+  });
+
+  document.getElementById('save-btn')!.addEventListener('click', saveInventory);
+
+  // Close modal when clicking outside
+  document.getElementById('edit-modal')!.addEventListener('click', (e) => {
+    if ((e.target as HTMLElement).id === 'edit-modal') {
+      document.getElementById('edit-modal')!.classList.add('hidden');
+    }
+  });
+
+  // Load inventory on page load
+  loadInventory();
+</script>
+
+<style>
+  .loading-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 2rem;
+  }
+
+  .spinner {
+    width: 48px;
+    height: 48px;
+    border: 4px solid #e5e7eb;
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  @keyframes spinning {
+    to { transform: rotate(360deg); }
+  }
+
+  .spinning {
+    animation: spinning 1s linear infinite;
+  }
+
+  .hidden {
+    display: none !important;
+  }
+
+  /* Modal Styles */
+  .modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 1rem;
+  }
+
+  .modal-container {
+    background: var(--bg-primary);
+    border-radius: 0.75rem;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    max-width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+    width: 100%;
+  }
+
+  .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.5rem;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .modal-header h2 {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .modal-body {
+    padding: 1.5rem;
+  }
+
+  .modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    padding: 1.5rem;
+    border-top: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    border-bottom-left-radius: 0.75rem;
+    border-bottom-right-radius: 0.75rem;
+  }
+
+  .form-group {
+    margin-bottom: 1.5rem;
+  }
+
+  .form-label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    font-size: 0.875rem;
+  }
+
+  .form-input {
+    width: 100%;
+    padding: 0.625rem 0.875rem;
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 0.875rem;
+    transition: all 0.2s;
+  }
+
+  .form-input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  }
+
+  .field-error {
+    display: block;
+    margin-top: 0.5rem;
+    color: #ef4444;
+    font-size: 0.75rem;
+    font-weight: 500;
+  }
+</style>

@@ -1,0 +1,673 @@
+---
+/**
+ * Invoice Upload Page
+ * 
+ * Provides file upload interface for supplier invoices supporting CSV, Excel, and PDF formats.
+ * Parses invoice data, matches against receiving records, and highlights variances.
+ * 
+ * Requirements: 10.1, 10.2, 10.3, 10.4, 10.5
+ */
+
+import MainLayout from '../../layouts/MainLayout.astro';
+import ErrorMessage from '../../components/ErrorMessage.astro';
+import LoadingSpinner from '../../components/LoadingSpinner.astro';
+import { db } from '../../services/firebase';
+import { collection, getDocs, query, where } from 'firebase/firestore';
+
+// Fetch active suppliers for selection
+let suppliers: Array<{ supplierId: string; name: string }> = [];
+let fetchError: string | null = null;
+
+try {
+  const suppliersRef = collection(db, 'suppliers');
+  const q = query(suppliersRef, where('isActive', '==', true));
+  const querySnapshot = await getDocs(q);
+  
+  suppliers = querySnapshot.docs.map(doc => {
+    const data = doc.data();
+    return {
+      supplierId: doc.id,
+      name: data.name || 'Unknown Supplier'
+    };
+  });
+
+  // Sort suppliers by name
+  suppliers.sort((a, b) => a.name.localeCompare(b.name));
+} catch (error) {
+  console.error('Error fetching suppliers:', error);
+  fetchError = 'Failed to load suppliers. Please refresh the page.';
+}
+
+// Check if there was an upload result in the URL params
+const url = new URL(Astro.request.url);
+const uploadSuccess = url.searchParams.get('success');
+const uploadError = url.searchParams.get('error');
+const invoiceId = url.searchParams.get('invoiceId');
+---
+
+<MainLayout title="Upload Invoice" requireAuth={true} requiredRole="Clerk">
+  <div class="upload-page">
+    <div class="page-header">
+      <h1>Upload Supplier Invoice</h1>
+      <p class="text-muted">
+        Upload invoices in CSV, Excel, or PDF format. The system will automatically extract invoice data,
+        match against receiving records, and highlight variances exceeding 5%.
+      </p>
+    </div>
+
+    <!-- Display success or error messages from previous upload -->
+    {uploadSuccess === 'true' && (
+      <div class="success-message bg-green-50 border border-green-300 text-green-800 rounded-md p-4 mb-4 flex items-start gap-2">
+        <span class="text-lg" aria-hidden="true">✅</span>
+        <div>
+          <p class="font-semibold">Invoice uploaded successfully!</p>
+          {invoiceId && (
+            <p class="text-sm mt-1">
+              <a href={`/invoices/${invoiceId}`} class="underline hover:no-underline">View invoice details</a>
+            </p>
+          )}
+        </div>
+      </div>
+    )}
+
+    {uploadError && (
+      <ErrorMessage message={decodeURIComponent(uploadError)} type="error" />
+    )}
+
+    {fetchError && (
+      <ErrorMessage message={fetchError} type="error" />
+    )}
+
+    <!-- Upload Form -->
+    <div class="card">
+      <form 
+        id="uploadForm" 
+        class="upload-form"
+        enctype="multipart/form-data"
+      >
+        <!-- Supplier Selection -->
+        <div class="form-group">
+          <label for="supplierId">
+            Supplier <span class="text-danger">*</span>
+          </label>
+          <select 
+            id="supplierId" 
+            name="supplierId" 
+            required
+            class="form-select"
+            disabled={suppliers.length === 0}
+          >
+            <option value="">-- Select a supplier --</option>
+            {suppliers.map(supplier => (
+              <option value={supplier.supplierId}>{supplier.name}</option>
+            ))}
+          </select>
+          <small class="text-muted">Select the supplier for this invoice</small>
+        </div>
+
+        <!-- File Upload -->
+        <div class="form-group">
+          <label for="invoiceFile">
+            Invoice File <span class="text-danger">*</span>
+          </label>
+          <input
+            type="file"
+            id="invoiceFile"
+            name="invoiceFile"
+            accept=".csv,.xls,.xlsx,.pdf"
+            required
+            class="form-file"
+          />
+          <small class="text-muted">
+            Accepted formats: CSV (.csv), Excel (.xls, .xlsx), PDF (.pdf). Maximum size: 10MB.
+          </small>
+        </div>
+
+        <!-- Error display area -->
+        <div id="errorContainer" class="hidden"></div>
+
+        <!-- Progress indicator (hidden by default) -->
+        <div id="progressContainer" class="hidden">
+          <LoadingSpinner size="md" />
+          <div id="progressBarContainer" class="mt-4"></div>
+          <p id="progressMessage" class="text-sm text-muted text-center mt-2">
+            Preparing upload...
+          </p>
+          <p class="text-sm text-gray-500 text-center mt-1">
+            Processing may take up to 30 seconds for invoices with 100 line items.
+          </p>
+        </div>
+
+        <!-- Submit Button -->
+        <div class="form-actions">
+          <button 
+            type="submit" 
+            class="btn btn-primary"
+            id="submitButton"
+            disabled={suppliers.length === 0}
+          >
+            Upload and Process
+          </button>
+          <a href="/invoices" class="btn btn-secondary">
+            Cancel
+          </a>
+        </div>
+      </form>
+    </div>
+
+    <!-- Help Section -->
+    <div class="card mt-lg">
+      <h3>Invoice Format Requirements</h3>
+      <div class="format-requirements">
+        <div class="format-section">
+          <h4>Required Fields</h4>
+          <ul>
+            <li><strong>Supplier Name</strong>: Name of the supplier</li>
+            <li><strong>Invoice Number</strong>: Unique invoice identifier</li>
+            <li><strong>Invoice Date</strong>: Date of the invoice</li>
+            <li><strong>Product Code</strong>: Product identifier (SKU or supplier code)</li>
+            <li><strong>Description</strong>: Product description</li>
+            <li><strong>Quantity</strong>: Quantity invoiced</li>
+            <li><strong>Unit Price</strong>: Price per unit</li>
+            <li><strong>Line Total</strong>: Total for the line item</li>
+          </ul>
+        </div>
+
+        <div class="format-section">
+          <h4>Variance Detection</h4>
+          <ul>
+            <li>System matches invoice line items against receiving records</li>
+            <li>Highlights variances > 5% in quantity or price</li>
+            <li>Red highlighting indicates items requiring review</li>
+            <li>You can approve or reject variances during review</li>
+          </ul>
+        </div>
+
+        <div class="format-section">
+          <h4>Performance Notes</h4>
+          <ul>
+            <li>Invoices with up to 100 line items processed within 30 seconds</li>
+            <li>Larger invoices may take additional time</li>
+            <li>You'll see extracted data and variance highlights after processing</li>
+            <li>All data can be reviewed before final approval</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</MainLayout>
+
+<script>
+  // Client-side upload handling
+  // Note: Using mock storage for CAPSTONE demo (no Firebase Blaze plan required)
+  import { db, auth } from '../../services/firebase';
+  import { ref, uploadBytes, getDownloadURL } from '../../services/firebase/mockStorage';
+  import { collection, addDoc, serverTimestamp, getDocs, query, where } from 'firebase/firestore';
+  import { parseInvoice } from '../../services/parsers/InvoiceParser';
+
+  const form = document.getElementById('uploadForm') as HTMLFormElement;
+  const submitButton = document.getElementById('submitButton') as HTMLButtonElement;
+  const progressContainer = document.getElementById('progressContainer') as HTMLDivElement;
+  const progressBarContainer = document.getElementById('progressBarContainer') as HTMLDivElement;
+  const progressMessage = document.getElementById('progressMessage') as HTMLParagraphElement;
+  const errorContainer = document.getElementById('errorContainer') as HTMLDivElement;
+
+  /**
+   * Update progress indicator with percentage
+   * Requirement 20.6: Display progress percentage for operations
+   */
+  function updateProgress(percentage: number, message: string) {
+    if (progressMessage) {
+      progressMessage.textContent = message;
+    }
+    
+    if (progressBarContainer) {
+      progressBarContainer.innerHTML = `
+        <div class="progress-bar-wrapper relative bg-gray-200 rounded-full h-4 overflow-hidden">
+          <div 
+            class="progress-bar-fill h-full rounded-full transition-all duration-300 ease-out bg-blue-600"
+            style="width: ${percentage}%"
+          >
+          </div>
+        </div>
+        <p class="progress-percentage text-center text-sm text-gray-600 mt-2 font-medium">
+          ${Math.round(percentage)}%
+        </p>
+      `;
+    }
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    // Get form data
+    const formData = new FormData(form);
+    const supplierId = formData.get('supplierId') as string;
+    const file = formData.get('invoiceFile') as File;
+
+    // Clear previous errors
+    errorContainer.classList.add('hidden');
+    errorContainer.innerHTML = '';
+
+    // Validate
+    if (!supplierId) {
+      showError('Please select a supplier');
+      return;
+    }
+
+    if (!file) {
+      showError('Please select a file to upload');
+      return;
+    }
+
+    // Validate file size (10MB max)
+    const maxSize = 10 * 1024 * 1024; // 10MB in bytes
+    if (file.size > maxSize) {
+      showError('File size exceeds 10MB limit. Please choose a smaller file.');
+      return;
+    }
+
+    // Validate file extension
+    const fileName = file.name.toLowerCase();
+    const validExtensions = ['.csv', '.xls', '.xlsx', '.pdf'];
+    const hasValidExtension = validExtensions.some(ext => fileName.endsWith(ext));
+    
+    if (!hasValidExtension) {
+      showError('Invalid file format. Please upload a CSV, Excel, or PDF file.');
+      return;
+    }
+
+    // Disable form and show progress
+    submitButton.disabled = true;
+    progressContainer.classList.remove('hidden');
+    updateProgress(0, 'Preparing upload...');
+
+    try {
+      const startTime = Date.now();
+
+      // Step 1: Upload file to Firebase Cloud Storage
+      // Requirement 10.1: Upload invoice document
+      updateProgress(10, 'Uploading invoice file...');
+      const timestamp = Date.now();
+      const sanitizedFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+      const storagePath = `invoices/${supplierId}/${timestamp}_${sanitizedFileName}`;
+      const storageRef = ref(storage, storagePath);
+
+      await uploadBytes(storageRef, file);
+      const downloadURL = await getDownloadURL(storageRef);
+      updateProgress(30, 'File uploaded. Parsing invoice data...');
+
+      // Step 2: Parse the invoice file
+      // Requirements 10.1, 10.2: Parse invoice and extract data
+      const invoiceData = await parseInvoice(file);
+      updateProgress(60, `Parsed invoice with ${invoiceData.lineItems.length} line items. Checking for variances...`);
+
+      // Step 3: Match against receiving records
+      // Requirement 10.3: Match invoice line items against received goods records
+      const lineItemsWithVariances = await matchAgainstReceivingRecords(
+        supplierId,
+        invoiceData.lineItems
+      );
+
+      // Check if any variance exceeds 5%
+      // Requirement 10.4: Flag variances > 5%
+      const hasVariance = lineItemsWithVariances.some(item => item.hasVariance);
+      updateProgress(85, 'Variance analysis complete. Saving invoice...');
+
+      // Step 4: Store invoice in Firestore
+      const currentUser = auth.currentUser;
+      const uploadedBy = currentUser ? currentUser.uid : 'anonymous';
+      
+      const invoicesRef = collection(db, 'invoices');
+      const invoiceDoc = await addDoc(invoicesRef, {
+        supplierId: supplierId,
+        invoiceNumber: invoiceData.invoiceNumber,
+        invoiceDate: invoiceData.invoiceDate,
+        storageRef: storagePath,
+        downloadURL: downloadURL,
+        lineItems: lineItemsWithVariances,
+        totalAmount: invoiceData.totalAmount,
+        hasVariance: hasVariance,
+        processedAt: serverTimestamp(),
+        uploadedBy: uploadedBy,
+        supplierName: invoiceData.supplierName,
+      });
+
+      updateProgress(100, 'Invoice processing complete!');
+
+      // Check processing time (Requirement 10.5: Process within 30 seconds for 100 line items)
+      const processingTime = Date.now() - startTime;
+      console.log(`Invoice processing completed in ${processingTime}ms for ${invoiceData.lineItems.length} line items`);
+
+      // Small delay to show completion
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Success! Redirect to invoice review page
+      window.location.href = `/invoices/${invoiceDoc.id}`;
+
+    } catch (error: any) {
+      console.error('Upload error:', error);
+      
+      // Requirement 10.2: Return descriptive error message
+      let errorMessage = 'Upload failed. Please try again.';
+      
+      if (error.name === 'InvoiceParseError') {
+        errorMessage = error.message;
+        if (error.details) {
+          errorMessage += ': ' + error.details;
+        }
+      } else if (error.code === 'storage/unauthorized') {
+        errorMessage = 'You do not have permission to upload files. Please contact your administrator.';
+      } else if (error.code === 'storage/quota-exceeded') {
+        errorMessage = 'Storage quota exceeded. Please contact your administrator.';
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+
+      showError(errorMessage);
+      
+      // Re-enable form
+      submitButton.disabled = false;
+      progressContainer.classList.add('hidden');
+    }
+  });
+
+  /**
+   * Match invoice line items against receiving records and calculate variances
+   * Requirement 10.3, 10.4: Match against receiving records and flag variances > 5%
+   */
+  async function matchAgainstReceivingRecords(
+    supplierId: string,
+    lineItems: Array<any>
+  ): Promise<Array<any>> {
+    // Fetch receiving records for this supplier
+    const receivingRef = collection(db, 'receiving_records');
+    const q = query(
+      receivingRef,
+      where('supplierId', '==', supplierId),
+      where('status', '==', 'completed')
+    );
+    const receivingSnapshot = await getDocs(q);
+    
+    // Build a map of product codes to receiving data
+    const receivingMap = new Map<string, {
+      quantity: number;
+      expectedPrice?: number;
+    }>();
+    
+    receivingSnapshot.docs.forEach(doc => {
+      const data = doc.data();
+      if (data.lineItems) {
+        data.lineItems.forEach((item: any) => {
+          const key = item.productCode || item.sku;
+          if (key) {
+            receivingMap.set(key, {
+              quantity: item.quantity,
+              expectedPrice: item.expectedPrice,
+            });
+          }
+        });
+      }
+    });
+
+    // Match each line item and calculate variance
+    return lineItems.map(item => {
+      const receivingData = receivingMap.get(item.productCode);
+      
+      if (!receivingData) {
+        // No matching receiving record
+        return {
+          ...item,
+          hasVariance: false,
+          varianceType: null,
+          quantityVariance: null,
+          priceVariance: null,
+          receivedQuantity: null,
+        };
+      }
+
+      // Calculate quantity variance
+      const quantityDiff = Math.abs(item.quantity - receivingData.quantity);
+      const quantityVariancePct = (quantityDiff / receivingData.quantity) * 100;
+      const hasQuantityVariance = quantityVariancePct > 5;
+
+      // Calculate price variance (if expected price is available)
+      let priceVariancePct = 0;
+      let hasPriceVariance = false;
+      if (receivingData.expectedPrice) {
+        const priceDiff = Math.abs(item.unitPrice - receivingData.expectedPrice);
+        priceVariancePct = (priceDiff / receivingData.expectedPrice) * 100;
+        hasPriceVariance = priceVariancePct > 5;
+      }
+
+      const hasVariance = hasQuantityVariance || hasPriceVariance;
+      
+      return {
+        ...item,
+        hasVariance: hasVariance,
+        varianceType: hasQuantityVariance ? (hasPriceVariance ? 'both' : 'quantity') : (hasPriceVariance ? 'price' : null),
+        quantityVariance: hasQuantityVariance ? quantityVariancePct : null,
+        priceVariance: hasPriceVariance ? priceVariancePct : null,
+        receivedQuantity: receivingData.quantity,
+        expectedPrice: receivingData.expectedPrice,
+      };
+    });
+  }
+
+  function showError(message: string) {
+    errorContainer.innerHTML = `
+      <div class="error-message bg-red-50 border border-red-300 text-red-800 rounded-md p-3 mb-3 flex items-start gap-2" role="alert">
+        <span class="error-icon text-lg" aria-hidden="true">❌</span>
+        <div class="flex-1">
+          <span class="error-text">${message}</span>
+        </div>
+      </div>
+    `;
+    errorContainer.classList.remove('hidden');
+    
+    // Scroll to error
+    errorContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+</script>
+
+<style>
+  .upload-page {
+    max-width: 900px;
+    margin: 0 auto;
+  }
+
+  .page-header {
+    margin-bottom: var(--spacing-2xl);
+  }
+
+  .page-header h1 {
+    margin-bottom: var(--spacing-sm);
+  }
+
+  .form-group {
+    margin-bottom: var(--spacing-lg);
+  }
+
+  .form-select,
+  .form-file {
+    display: block;
+    width: 100%;
+    padding: var(--spacing-sm);
+    font-size: 0.875rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    transition: border-color 0.2s;
+  }
+
+  .form-select:focus,
+  .form-file:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  }
+
+  .form-select:disabled {
+    background-color: var(--color-surface);
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  .form-file {
+    padding: var(--spacing-sm);
+    cursor: pointer;
+  }
+
+  .form-file::-webkit-file-upload-button {
+    padding: var(--spacing-xs) var(--spacing-md);
+    margin-right: var(--spacing-sm);
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: background-color 0.2s;
+  }
+
+  .form-file::-webkit-file-upload-button:hover {
+    background-color: var(--color-border);
+  }
+
+  .form-actions {
+    display: flex;
+    gap: var(--spacing-md);
+    margin-top: var(--spacing-xl);
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--spacing-sm) var(--spacing-lg);
+    font-size: 0.875rem;
+    font-weight: 500;
+    border: none;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all 0.2s;
+    text-decoration: none;
+  }
+
+  .btn-primary {
+    background-color: var(--color-primary);
+    color: white;
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    background-color: var(--color-primary-dark);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+  }
+
+  .btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .btn-secondary {
+    background-color: white;
+    color: var(--color-text);
+    border: 1px solid var(--color-border);
+  }
+
+  .btn-secondary:hover {
+    background-color: var(--color-surface);
+  }
+
+  .format-requirements {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: var(--spacing-lg);
+    margin-top: var(--spacing-md);
+  }
+
+  .format-section h4 {
+    font-size: 1rem;
+    margin-bottom: var(--spacing-sm);
+    color: var(--color-primary);
+  }
+
+  .format-section ul {
+    list-style: none;
+    padding: 0;
+  }
+
+  .format-section li {
+    padding: var(--spacing-xs) 0;
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+
+  .format-section li::before {
+    content: '•';
+    color: var(--color-primary);
+    font-weight: bold;
+    display: inline-block;
+    width: 1em;
+    margin-left: -1em;
+  }
+
+  .hidden {
+    display: none;
+  }
+
+  .progress-bar-wrapper {
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
+  }
+
+  .progress-bar-fill {
+    background-image: linear-gradient(
+      45deg,
+      rgba(255, 255, 255, 0.15) 25%,
+      transparent 25%,
+      transparent 50%,
+      rgba(255, 255, 255, 0.15) 50%,
+      rgba(255, 255, 255, 0.15) 75%,
+      transparent 75%,
+      transparent
+    );
+    background-size: 1rem 1rem;
+    animation: progress-stripes 1s linear infinite;
+  }
+
+  @keyframes progress-stripes {
+    0% {
+      background-position: 0 0;
+    }
+    100% {
+      background-position: 1rem 0;
+    }
+  }
+
+  .success-message {
+    animation: slideIn 0.3s ease-out;
+  }
+
+  @keyframes slideIn {
+    from {
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @media (max-width: 768px) {
+    .form-actions {
+      flex-direction: column;
+    }
+
+    .btn {
+      width: 100%;
+    }
+
+    .format-requirements {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

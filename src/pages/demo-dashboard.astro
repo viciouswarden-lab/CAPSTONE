@@ -1,0 +1,392 @@
+---
+/**
+ * CAPSTONE Demo Dashboard
+ * 
+ * Modern, professional dashboard with mock data for presentation purposes.
+ * No Firebase connection required.
+ */
+
+import ModernLayout from '../layouts/ModernLayout.astro';
+
+// Mock data for demonstration
+const mockMetrics = {
+  salesRevenueToday: 45250.50,
+  salesRevenueWeek: 312840.25,
+  salesRevenueMonth: 1456920.75,
+  inventoryValue: 2840500.00,
+  lowStockCount: 23,
+  significantPriceIncreases: 8,
+  unmatchedProductCount: 15,
+  newProductCount: 12,
+};
+
+const pageTitle = 'Dashboard';
+---
+
+<ModernLayout title={pageTitle}>
+  <div class="dashboard">
+    <!-- Stats Grid -->
+    <div class="stats-grid">
+      <!-- Sales Revenue Card -->
+      <div class="stat-card primary">
+        <div class="stat-icon">
+          <span class="material-symbols-outlined">payments</span>
+        </div>
+        <div class="stat-content">
+          <div class="stat-label">Today's Revenue</div>
+          <div class="stat-value">₱{mockMetrics.salesRevenueToday.toLocaleString()}</div>
+          <div class="stat-details">
+            <span class="stat-detail-item">
+              <span class="stat-detail-label">Week:</span>
+              <span class="stat-detail-value">₱{mockMetrics.salesRevenueWeek.toLocaleString()}</span>
+            </span>
+            <span class="stat-detail-item">
+              <span class="stat-detail-label">Month:</span>
+              <span class="stat-detail-value">₱{mockMetrics.salesRevenueMonth.toLocaleString()}</span>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Inventory Value Card -->
+      <div class="stat-card success">
+        <div class="stat-icon">
+          <span class="material-symbols-outlined">warehouse</span>
+        </div>
+        <div class="stat-content">
+          <div class="stat-label">Inventory Value</div>
+          <div class="stat-value">₱{mockMetrics.inventoryValue.toLocaleString()}</div>
+          <div class="stat-subtitle">Current Stock Holdings</div>
+        </div>
+      </div>
+
+      <!-- Low Stock Alert Card -->
+      <div class="stat-card warning">
+        <div class="stat-icon">
+          <span class="material-symbols-outlined">warning</span>
+        </div>
+        <div class="stat-content">
+          <div class="stat-label">Low Stock Items</div>
+          <div class="stat-value">{mockMetrics.lowStockCount}</div>
+          <a href="/inventory" class="stat-action">View Items →</a>
+        </div>
+      </div>
+
+      <!-- Price Increases Card -->
+      <div class="stat-card danger">
+        <div class="stat-icon">
+          <span class="material-symbols-outlined">trending_up</span>
+        </div>
+        <div class="stat-content">
+          <div class="stat-label">Price Increases</div>
+          <div class="stat-value">{mockMetrics.significantPriceIncreases}</div>
+          <div class="stat-subtitle">Significant (>10%)</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Secondary Stats Row -->
+    <div class="stats-row">
+      <div class="stat-card-small">
+        <div class="stat-small-icon">
+          <span class="material-symbols-outlined">link_off</span>
+        </div>
+        <div class="stat-small-content">
+          <div class="stat-small-value">{mockMetrics.unmatchedProductCount}</div>
+          <div class="stat-small-label">Unmatched Products</div>
+          <a href="/matching" class="stat-small-link">Review →</a>
+        </div>
+      </div>
+
+      <div class="stat-card-small">
+        <div class="stat-small-icon success">
+          <span class="material-symbols-outlined">new_releases</span>
+        </div>
+        <div class="stat-small-content">
+          <div class="stat-small-value">{mockMetrics.newProductCount}</div>
+          <div class="stat-small-label">New Products</div>
+          <div class="stat-small-subtitle">Recently Detected</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Demo Notice -->
+    <div class="demo-notice">
+      <div class="demo-notice-icon">
+        <span class="material-symbols-outlined">info</span>
+      </div>
+      <div class="demo-notice-content">
+        <div class="demo-notice-title">CAPSTONE Demo Mode</div>
+        <div class="demo-notice-text">
+          You're viewing the dashboard with mock data. In production, these metrics would be live from Firebase Firestore.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <style>
+    .dashboard {
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+
+    /* Stats Grid */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .stat-card {
+      background: white;
+      border-radius: 12px;
+      padding: 1.5rem;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      border: 1px solid #e2e8f0;
+      display: flex;
+      gap: 1rem;
+      transition: all 0.2s;
+    }
+
+    .stat-card:hover {
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      transform: translateY(-2px);
+    }
+
+    .stat-icon {
+      width: 56px;
+      height: 56px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .stat-card.primary .stat-icon {
+      background: linear-gradient(135deg, #3b82f6 0%, #1e40af 100%);
+      color: white;
+    }
+
+    .stat-card.success .stat-icon {
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      color: white;
+    }
+
+    .stat-card.warning .stat-icon {
+      background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+      color: white;
+    }
+
+    .stat-card.danger .stat-icon {
+      background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+      color: white;
+    }
+
+    .stat-icon .material-symbols-outlined {
+      font-size: 28px;
+    }
+
+    .stat-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .stat-label {
+      font-size: 0.875rem;
+      color: #64748b;
+      font-weight: 500;
+    }
+
+    .stat-value {
+      font-size: 2rem;
+      font-weight: 700;
+      color: #0f172a;
+      line-height: 1;
+    }
+
+    .stat-subtitle {
+      font-size: 0.8125rem;
+      color: #94a3b8;
+    }
+
+    .stat-details {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      margin-top: 0.5rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid #f1f5f9;
+    }
+
+    .stat-detail-item {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.8125rem;
+    }
+
+    .stat-detail-label {
+      color: #64748b;
+    }
+
+    .stat-detail-value {
+      color: #0f172a;
+      font-weight: 600;
+    }
+
+    .stat-action {
+      color: #3b82f6;
+      font-size: 0.875rem;
+      font-weight: 500;
+      text-decoration: none;
+      transition: color 0.15s;
+      margin-top: 0.25rem;
+    }
+
+    .stat-action:hover {
+      color: #1e40af;
+    }
+
+    /* Secondary Stats Row */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .stat-card-small {
+      background: white;
+      border-radius: 12px;
+      padding: 1.25rem;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      border: 1px solid #e2e8f0;
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+    }
+
+    .stat-small-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 10px;
+      background: #f1f5f9;
+      color: #64748b;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .stat-small-icon.success {
+      background: #d1fae5;
+      color: #059669;
+    }
+
+    .stat-small-icon .material-symbols-outlined {
+      font-size: 24px;
+    }
+
+    .stat-small-content {
+      flex: 1;
+    }
+
+    .stat-small-value {
+      font-size: 1.75rem;
+      font-weight: 700;
+      color: #0f172a;
+      line-height: 1;
+      margin-bottom: 0.25rem;
+    }
+
+    .stat-small-label {
+      font-size: 0.875rem;
+      color: #64748b;
+      font-weight: 500;
+    }
+
+    .stat-small-subtitle {
+      font-size: 0.75rem;
+      color: #94a3b8;
+      margin-top: 0.25rem;
+    }
+
+    .stat-small-link {
+      font-size: 0.8125rem;
+      color: #3b82f6;
+      font-weight: 500;
+      text-decoration: none;
+      margin-top: 0.25rem;
+      display: inline-block;
+    }
+
+    .stat-small-link:hover {
+      color: #1e40af;
+    }
+
+    /* Demo Notice */
+    .demo-notice {
+      background: linear-gradient(135deg, #dbeafe 0%, #e0e7ff 100%);
+      border: 2px solid #3b82f6;
+      border-radius: 12px;
+      padding: 1.25rem;
+      display: flex;
+      gap: 1rem;
+      align-items: start;
+    }
+
+    .demo-notice-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 8px;
+      background: white;
+      color: #3b82f6;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .demo-notice-icon .material-symbols-outlined {
+      font-size: 24px;
+    }
+
+    .demo-notice-content {
+      flex: 1;
+    }
+
+    .demo-notice-title {
+      font-size: 0.9375rem;
+      font-weight: 600;
+      color: #1e40af;
+      margin-bottom: 0.25rem;
+    }
+
+    .demo-notice-text {
+      font-size: 0.875rem;
+      color: #1e40af;
+      line-height: 1.5;
+    }
+
+    /* Responsive Design */
+    @media (max-width: 768px) {
+      .stats-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .stats-row {
+        grid-template-columns: 1fr;
+      }
+
+      .stat-value {
+        font-size: 1.75rem;
+      }
+
+      .stat-small-value {
+        font-size: 1.5rem;
+      }
+    }
+  </style>
+</ModernLayout>

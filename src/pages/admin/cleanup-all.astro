@@ -1,0 +1,341 @@
+---
+/**
+ * Admin Cleanup - ALL DATA
+ * 
+ * Deletes everything from Firestore
+ */
+
+import ModernLayout from '../../layouts/ModernLayout.astro';
+---
+
+<ModernLayout title="Cleanup All Data">
+  <div class="cleanup-page">
+    <div class="page-header">
+      <h1>⚠️ CLEANUP ALL DATA</h1>
+      <p class="subtitle">Remove ALL data from Firestore - COMPLETE RESET</p>
+    </div>
+
+    <div class="card">
+      <div class="card-body">
+        <div class="alert alert-danger mb-4">
+          <span class="material-symbols-outlined">warning</span>
+          <div>
+            <strong>DANGER:</strong> This will permanently delete ALL data:
+            <ul style="margin-top: 0.5rem;">
+              <li><strong>Products</strong> - All products and their data</li>
+              <li><strong>Suppliers</strong> - All supplier records</li>
+              <li><strong>Pricelists</strong> - All uploaded pricelists</li>
+              <li><strong>Pricelist Items</strong> - All pricelist item records</li>
+              <li><strong>Price Changes</strong> - All price change history</li>
+              <li><strong>Inventory</strong> - All inventory records</li>
+              <li><strong>Transactions</strong> - All POS transactions</li>
+              <li><strong>Reports</strong> - All generated reports</li>
+              <li><strong>Dashboard Metrics</strong> - All dashboard data</li>
+            </ul>
+            <strong style="color: #dc2626;">THIS CANNOT BE UNDONE!</strong>
+          </div>
+        </div>
+
+        <div id="status-container" class="hidden mb-4">
+          <div id="status-message"></div>
+        </div>
+
+        <div id="progress-container" class="hidden mb-4">
+          <div class="progress-bar">
+            <div id="progress-fill" class="progress-fill"></div>
+          </div>
+          <div id="progress-text" style="margin-top: 0.5rem; text-align: center; color: #6b7280;"></div>
+        </div>
+
+        <button id="cleanup-btn" class="btn btn-danger">
+          <span class="material-symbols-outlined">delete_forever</span>
+          DELETE ALL DATA
+        </button>
+
+        <button id="back-btn" class="btn btn-secondary" style="margin-left: 1rem;">
+          <span class="material-symbols-outlined">arrow_back</span>
+          Cancel
+        </button>
+      </div>
+    </div>
+  </div>
+</ModernLayout>
+
+<script>
+  import { db } from '../../services/firebase';
+  import { collection, getDocs, deleteDoc, doc } from 'firebase/firestore';
+
+  const cleanupBtn = document.getElementById('cleanup-btn') as HTMLButtonElement;
+  const backBtn = document.getElementById('back-btn') as HTMLButtonElement;
+  const statusContainer = document.getElementById('status-container')!;
+  const statusMessage = document.getElementById('status-message')!;
+  const progressContainer = document.getElementById('progress-container')!;
+  const progressFill = document.getElementById('progress-fill')!;
+  const progressText = document.getElementById('progress-text')!;
+
+  const showStatus = (message: string, type: 'info' | 'success' | 'error') => {
+    statusContainer.classList.remove('hidden');
+    const alertClass = type === 'success' ? 'alert-success' : type === 'error' ? 'alert-error' : 'alert-info';
+    statusMessage.innerHTML = `
+      <div class="alert ${alertClass}">
+        <span class="material-symbols-outlined">${type === 'success' ? 'check_circle' : type === 'error' ? 'error' : 'info'}</span>
+        <div>${message}</div>
+      </div>
+    `;
+  };
+
+  const updateProgress = (current: number, total: number, collectionName: string) => {
+    progressContainer.classList.remove('hidden');
+    const percentage = total > 0 ? (current / total) * 100 : 0;
+    progressFill.style.width = `${percentage}%`;
+    progressText.textContent = `Deleting ${collectionName}: ${current} / ${total}`;
+  };
+
+  const deleteCollection = async (collectionName: string) => {
+    const collectionRef = collection(db!, collectionName);
+    const snapshot = await getDocs(collectionRef);
+    const total = snapshot.docs.length;
+    
+    if (total === 0) {
+      console.log(`${collectionName}: No documents to delete`);
+      return 0;
+    }
+
+    let deleted = 0;
+    for (const docSnapshot of snapshot.docs) {
+      await deleteDoc(doc(db!, collectionName, docSnapshot.id));
+      deleted++;
+      
+      // Update progress every 10 documents or on last document
+      if (deleted % 10 === 0 || deleted === total) {
+        updateProgress(deleted, total, collectionName);
+      }
+    }
+
+    return deleted;
+  };
+
+  cleanupBtn.addEventListener('click', async () => {
+    if (!confirm('⚠️ ARE YOU ABSOLUTELY SURE?\n\nThis will DELETE ALL DATA from the entire system!\n\nThis includes:\n- All products\n- All suppliers\n- All pricelists\n- All transactions\n- All inventory\n- Everything!\n\nThis action CANNOT be undone!')) {
+      return;
+    }
+
+    if (!confirm('FINAL WARNING!\n\nYou are about to permanently delete EVERYTHING.\n\nType YES in your mind and click OK to proceed.')) {
+      return;
+    }
+
+    if (!confirm('Last chance to cancel. Click OK to DELETE EVERYTHING NOW.')) {
+      return;
+    }
+
+    cleanupBtn.disabled = true;
+    backBtn.disabled = true;
+    cleanupBtn.innerHTML = '<span class="material-symbols-outlined spinning">refresh</span> Deleting...';
+
+    const results: Record<string, number> = {};
+
+    try {
+      showStatus('Starting complete data wipe...', 'info');
+
+      // Order matters - delete dependent data first
+      const collections = [
+        'pos_transactions',
+        'inventory_transactions',
+        'inventory',
+        'price_changes',
+        'pricelist_items',
+        'pricelists',
+        'reports',
+        'dashboard_metrics',
+        'products',
+        'suppliers',
+        'users',
+        'audit_logs'
+      ];
+
+      for (const collectionName of collections) {
+        try {
+          const deleted = await deleteCollection(collectionName);
+          results[collectionName] = deleted;
+          showStatus(`Deleted ${deleted} documents from ${collectionName}...`, 'info');
+        } catch (error) {
+          console.error(`Error deleting ${collectionName}:`, error);
+          results[collectionName] = 0;
+        }
+      }
+
+      // Build summary
+      const totalDeleted = Object.values(results).reduce((sum, count) => sum + count, 0);
+      let summaryHtml = '<strong>Complete Data Wipe Finished!</strong><br><br>';
+      summaryHtml += '<strong>Deleted:</strong><br>';
+      
+      for (const [collection, count] of Object.entries(results)) {
+        if (count > 0) {
+          summaryHtml += `• ${collection}: ${count} documents<br>`;
+        }
+      }
+      
+      summaryHtml += `<br><strong>Total: ${totalDeleted} documents deleted</strong>`;
+
+      showStatus(summaryHtml, 'success');
+      progressContainer.classList.add('hidden');
+      cleanupBtn.innerHTML = '<span class="material-symbols-outlined">check</span> All Data Deleted';
+
+    } catch (error) {
+      console.error('Cleanup error:', error);
+      showStatus(
+        `<strong>Error during cleanup:</strong><br>${error instanceof Error ? error.message : 'Unknown error'}`,
+        'error'
+      );
+      cleanupBtn.disabled = false;
+      backBtn.disabled = false;
+      cleanupBtn.innerHTML = '<span class="material-symbols-outlined">delete_forever</span> DELETE ALL DATA';
+    }
+  });
+
+  backBtn.addEventListener('click', () => {
+    window.location.href = '/';
+  });
+</script>
+
+<style>
+  .cleanup-page {
+    padding: 2rem;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+
+  .page-header {
+    margin-bottom: 2rem;
+    text-align: center;
+  }
+
+  .page-header h1 {
+    font-size: 2.5rem;
+    color: #dc2626;
+    margin-bottom: 0.5rem;
+  }
+
+  .subtitle {
+    color: #6b7280;
+    font-size: 1.125rem;
+  }
+
+  .card {
+    background: white;
+    border-radius: 0.75rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    border: 2px solid #dc2626;
+  }
+
+  .card-body {
+    padding: 2rem;
+  }
+
+  .alert {
+    display: flex;
+    gap: 1rem;
+    padding: 1rem 1.5rem;
+    border-radius: 0.5rem;
+    align-items: flex-start;
+  }
+
+  .alert ul {
+    margin: 0;
+    padding-left: 1.5rem;
+  }
+
+  .alert-danger {
+    background-color: #fee2e2;
+    border: 2px solid #dc2626;
+    color: #991b1b;
+  }
+
+  .alert-info {
+    background-color: #dbeafe;
+    border: 1px solid #60a5fa;
+    color: #1e40af;
+  }
+
+  .alert-success {
+    background-color: #d1fae5;
+    border: 1px solid #34d399;
+    color: #065f46;
+  }
+
+  .alert-error {
+    background-color: #fee2e2;
+    border: 1px solid #f87171;
+    color: #991b1b;
+  }
+
+  .mb-4 {
+    margin-bottom: 1.5rem;
+  }
+
+  .progress-bar {
+    width: 100%;
+    height: 30px;
+    background-color: #e5e7eb;
+    border-radius: 0.5rem;
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #3b82f6, #2563eb);
+    transition: width 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.875rem 1.75rem;
+    border: none;
+    border-radius: 0.5rem;
+    font-size: 1.125rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .btn-danger {
+    background-color: #dc2626;
+    color: white;
+  }
+
+  .btn-danger:hover:not(:disabled) {
+    background-color: #b91c1c;
+    transform: scale(1.02);
+  }
+
+  .btn-secondary {
+    background-color: #6b7280;
+    color: white;
+  }
+
+  .btn-secondary:hover:not(:disabled) {
+    background-color: #4b5563;
+  }
+
+  .hidden {
+    display: none;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .spinning {
+    animation: spin 1s linear infinite;
+  }
+</style>

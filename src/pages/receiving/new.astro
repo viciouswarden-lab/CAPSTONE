@@ -1,0 +1,1085 @@
+---
+/**
+ * New Receiving Record Page - Client-Side
+ * 
+ * Create new receiving records with manual entry.
+ * Supports variance detection and inventory updates.
+ */
+
+import ModernLayout from '../../layouts/ModernLayout.astro';
+
+Astro.response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+---
+
+<ModernLayout title="New Receiving Record">
+  <div class="receiving-new-page">
+    <!-- Page Header -->
+    <div class="page-header">
+      <div>
+        <h1>
+          <span class="material-symbols-outlined" style="vertical-align: middle; margin-right: 0.5rem;">add_box</span>
+          New Receiving Record
+        </h1>
+        <p class="subtitle">Record incoming shipments and update inventory</p>
+      </div>
+      <a href="/receiving" class="btn btn-secondary">
+        <span class="material-symbols-outlined">arrow_back</span>
+        Back to Receiving
+      </a>
+    </div>
+
+    <!-- Loading State -->
+    <div id="loading-state" class="loading-container">
+      <div class="spinner"></div>
+      <p style="margin-top: 1rem; color: var(--text-secondary);">Loading form data...</p>
+    </div>
+
+    <!-- Error Display -->
+    <div id="error-display" class="hidden">
+      <div class="alert alert-error">
+        <span class="material-symbols-outlined">error</span>
+        <div>
+          <strong>Error:</strong> <span id="error-message"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Form Content -->
+    <div id="form-content" class="hidden">
+      <form id="receiving-form">
+        <!-- Basic Information Card -->
+        <div class="card">
+          <div class="card-header">
+            <h2>Basic Information</h2>
+          </div>
+          <div class="card-body">
+            <div class="form-grid">
+              <!-- Supplier -->
+              <div class="form-group">
+                <label for="supplierId">
+                  Supplier <span class="required">*</span>
+                </label>
+                <select id="supplierId" required class="form-input">
+                  <option value="">Select Supplier</option>
+                </select>
+              </div>
+
+              <!-- Receiving Date -->
+              <div class="form-group">
+                <label for="receivingDate">
+                  Receiving Date <span class="required">*</span>
+                </label>
+                <input type="date" id="receivingDate" required class="form-input" />
+              </div>
+
+              <!-- Document Type -->
+              <div class="form-group">
+                <label for="documentType">
+                  Document Type <span class="required">*</span>
+                </label>
+                <select id="documentType" required class="form-input">
+                  <option value="">Select Type</option>
+                  <option value="invoice">Invoice</option>
+                  <option value="delivery_receipt">Delivery Receipt</option>
+                </select>
+              </div>
+
+              <!-- Location -->
+              <div class="form-group">
+                <label for="locationId">
+                  Location <span class="required">*</span>
+                </label>
+                <select id="locationId" required class="form-input">
+                  <option value="">Select Location</option>
+                </select>
+              </div>
+
+              <!-- Document Upload -->
+              <div class="form-group" style="grid-column: 1 / -1;">
+                <label for="documentUpload">
+                  Upload Document (Optional)
+                  <span class="file-hint">Supports: CSV, Excel, PDF, JPG, PNG</span>
+                </label>
+                <div class="file-upload-wrapper">
+                  <input 
+                    type="file" 
+                    id="documentUpload" 
+                    accept=".csv,.xls,.xlsx,.pdf,.jpg,.jpeg,.png" 
+                    class="file-input"
+                  />
+                  <div class="file-upload-display">
+                    <span class="material-symbols-outlined">upload_file</span>
+                    <span id="file-name">Choose a file or drag and drop</span>
+                  </div>
+                </div>
+                <button type="button" id="parse-btn" class="btn btn-secondary btn-sm hidden" style="margin-top: 0.5rem;">
+                  <span class="material-symbols-outlined">auto_awesome</span>
+                  Parse Document
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Line Items Card -->
+        <div class="card">
+          <div class="card-header">
+            <h2>Line Items</h2>
+            <button type="button" id="add-line-btn" class="btn btn-primary btn-sm">
+              <span class="material-symbols-outlined">add</span>
+              Add Line Item
+            </button>
+          </div>
+          <div class="card-body">
+            <!-- Empty State -->
+            <div id="empty-state" class="empty-state">
+              <span class="material-symbols-outlined empty-icon">inventory_2</span>
+              <h3>No Line Items Added</h3>
+              <p>Upload an invoice/receipt to auto-fill, or click "Add Line Item" to enter manually</p>
+            </div>
+
+            <!-- Line Items Container -->
+            <div id="line-items-container" class="line-items-container hidden">
+              <!-- Line items will be added dynamically -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Variance Alert -->
+        <div id="variance-alert" class="alert alert-warning hidden">
+          <span class="material-symbols-outlined">warning</span>
+          <div>
+            <strong>Variance Detected:</strong>
+            <p id="variance-text">Some line items have quantity discrepancies exceeding 5%. This record will be flagged for review.</p>
+          </div>
+        </div>
+
+        <!-- Form Actions -->
+        <div class="form-actions">
+          <a href="/receiving" class="btn btn-secondary">
+            <span class="material-symbols-outlined">close</span>
+            Cancel
+          </a>
+          <button type="submit" id="submit-btn" class="btn btn-primary">
+            <span class="material-symbols-outlined">save</span>
+            Create Receiving Record
+          </button>
+        </div>
+      </form>
+
+      <!-- Progress Modal -->
+      <div id="progress-modal" class="modal hidden">
+        <div class="modal-overlay"></div>
+        <div class="modal-content modal-sm">
+          <div class="modal-body text-center">
+            <div class="spinner" style="margin: 0 auto 1rem;"></div>
+            <h3 id="progress-title">Creating Receiving Record</h3>
+            <div class="progress-bar">
+              <div id="progress-fill" class="progress-fill"></div>
+            </div>
+            <p id="progress-message" class="progress-message">Preparing data...</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</ModernLayout>
+
+<script>
+  import { db } from '../../services/firebase';
+  import { collection, getDocs, query, where, orderBy, addDoc, Timestamp } from 'firebase/firestore';
+  import { inventoryService } from '../../services/inventory/InventoryService';
+  import { receivingDocumentParser } from '../../services/documents/ReceivingDocumentParser';
+
+  const loadingState = document.getElementById('loading-state')!;
+  const errorDisplay = document.getElementById('error-display')!;
+  const errorMessage = document.getElementById('error-message')!;
+  const formContent = document.getElementById('form-content')!;
+  const receivingForm = document.getElementById('receiving-form') as HTMLFormElement;
+  const supplierSelect = document.getElementById('supplierId') as HTMLSelectElement;
+  const receivingDateInput = document.getElementById('receivingDate') as HTMLInputElement;
+  const locationSelect = document.getElementById('locationId') as HTMLSelectElement;
+  const addLineBtn = document.getElementById('add-line-btn')!;
+  const emptyState = document.getElementById('empty-state')!;
+  const lineItemsContainer = document.getElementById('line-items-container')!;
+  const varianceAlert = document.getElementById('variance-alert')!;
+  const varianceText = document.getElementById('variance-text')!;
+  const submitBtn = document.getElementById('submit-btn') as HTMLButtonElement;
+  const progressModal = document.getElementById('progress-modal')!;
+  const progressFill = document.getElementById('progress-fill')!;
+  const progressMessage = document.getElementById('progress-message')!;
+
+  let lineItemCounter = 0;
+  let products: any[] = [];
+  let suppliers: any[] = [];
+  let uploadedFile: File | null = null;
+
+  // File upload elements
+  const documentUpload = document.getElementById('documentUpload') as HTMLInputElement;
+  const fileName = document.getElementById('file-name')!;
+  const parseBtn = document.getElementById('parse-btn')!;
+
+  // Set today's date as default
+  receivingDateInput.value = new Date().toISOString().split('T')[0];
+
+  const loadData = async () => {
+    try {
+      loadingState.classList.remove('hidden');
+      errorDisplay.classList.add('hidden');
+
+      // Load suppliers
+      const suppliersRef = collection(db!, 'suppliers');
+      const suppliersQuery = query(suppliersRef, where('isActive', '==', true), orderBy('name'));
+      const suppliersSnap = await getDocs(suppliersQuery);
+      suppliers = suppliersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+      // Populate supplier dropdown
+      suppliers.forEach(supplier => {
+        const option = document.createElement('option');
+        option.value = supplier.id;
+        option.textContent = supplier.name;
+        supplierSelect.appendChild(option);
+      });
+
+      // Load products
+      const productsRef = collection(db!, 'products');
+      const productsQuery = query(productsRef, where('isActive', '==', true), orderBy('sku'));
+      const productsSnap = await getDocs(productsQuery);
+      products = productsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+      // Load locations from inventory
+      const inventoryRef = collection(db!, 'inventory');
+      const inventorySnap = await getDocs(inventoryRef);
+      const locations = new Set<string>();
+      inventorySnap.forEach(doc => {
+        locations.add(doc.data().locationId);
+      });
+
+      // Populate location dropdown with unique locations or defaults
+      const locationArray = locations.size > 0 ? Array.from(locations).sort() : ['warehouse', 'store', 'default'];
+      locationArray.forEach(location => {
+        const option = document.createElement('option');
+        option.value = location;
+        option.textContent = location.charAt(0).toUpperCase() + location.slice(1);
+        locationSelect.appendChild(option);
+      });
+
+      loadingState.classList.add('hidden');
+      formContent.classList.remove('hidden');
+    } catch (err) {
+      loadingState.classList.add('hidden');
+      errorDisplay.classList.remove('hidden');
+      errorMessage.textContent = err instanceof Error ? err.message : 'Failed to load form data';
+      console.error('Error loading data:', err);
+    }
+  };
+
+  const addLineItem = () => {
+    lineItemCounter++;
+    const lineId = `line-${lineItemCounter}`;
+
+    const lineItem = document.createElement('div');
+    lineItem.className = 'line-item';
+    lineItem.dataset.lineId = lineId;
+    lineItem.innerHTML = `
+      <div class="line-item-header">
+        <span class="line-item-number">#${lineItemCounter}</span>
+        <button type="button" class="btn-icon" data-action="remove" data-line-id="${lineId}">
+          <span class="material-symbols-outlined">delete</span>
+        </button>
+      </div>
+      <div class="line-item-body">
+        <div class="form-group">
+          <label>Product SKU <span class="required">*</span></label>
+          <select class="form-input line-item-sku" required data-line-id="${lineId}">
+            <option value="">Select Product</option>
+            ${products.map(p => `<option value="${p.sku}" data-description="${p.description}">${p.sku}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Description</label>
+          <input type="text" class="form-input line-item-description" readonly placeholder="Select product first" />
+        </div>
+        <div class="form-group">
+          <label>Received Qty <span class="required">*</span></label>
+          <input type="number" class="form-input line-item-quantity" min="0" step="1" required data-line-id="${lineId}" />
+        </div>
+        <div class="form-group">
+          <label>Expected Qty</label>
+          <input type="number" class="form-input line-item-expected" min="0" step="1" placeholder="Optional" data-line-id="${lineId}" />
+        </div>
+      </div>
+      <div class="line-item-variance hidden">
+        <span class="material-symbols-outlined">warning</span>
+        <span class="variance-message"></span>
+      </div>
+    `;
+
+    lineItemsContainer.appendChild(lineItem);
+
+    // Hide empty state
+    emptyState.classList.add('hidden');
+    lineItemsContainer.classList.remove('hidden');
+
+    // Attach event listeners
+    const skuSelect = lineItem.querySelector('.line-item-sku') as HTMLSelectElement;
+    const descInput = lineItem.querySelector('.line-item-description') as HTMLInputElement;
+    const qtyInput = lineItem.querySelector('.line-item-quantity') as HTMLInputElement;
+    const expectedInput = lineItem.querySelector('.line-item-expected') as HTMLInputElement;
+    const removeBtn = lineItem.querySelector('[data-action="remove"]') as HTMLButtonElement;
+
+    skuSelect.addEventListener('change', (e) => {
+      const selected = (e.target as HTMLSelectElement).selectedOptions[0];
+      descInput.value = selected?.getAttribute('data-description') || '';
+    });
+
+    qtyInput.addEventListener('input', checkVariances);
+    expectedInput.addEventListener('input', checkVariances);
+
+    removeBtn.addEventListener('click', () => {
+      lineItem.remove();
+      if (lineItemsContainer.children.length === 0) {
+        emptyState.classList.remove('hidden');
+        lineItemsContainer.classList.add('hidden');
+      }
+      checkVariances();
+    });
+  };
+
+  const checkVariances = () => {
+    let hasVariance = false;
+    const lineItems = lineItemsContainer.querySelectorAll('.line-item');
+
+    lineItems.forEach(item => {
+      const qtyInput = item.querySelector('.line-item-quantity') as HTMLInputElement;
+      const expectedInput = item.querySelector('.line-item-expected') as HTMLInputElement;
+      const varianceDiv = item.querySelector('.line-item-variance')!;
+      const varianceMsg = item.querySelector('.variance-message')!;
+
+      const received = parseFloat(qtyInput.value) || 0;
+      const expected = parseFloat(expectedInput.value);
+
+      if (expected && expected > 0 && received > 0) {
+        const variance = Math.abs(received - expected);
+        const variancePercentage = variance / expected;
+
+        if (variancePercentage > 0.05) {
+          hasVariance = true;
+          varianceDiv.classList.remove('hidden');
+          varianceMsg.textContent = `Expected ${expected}, received ${received} (${(variancePercentage * 100).toFixed(1)}% difference)`;
+        } else {
+          varianceDiv.classList.add('hidden');
+        }
+      } else {
+        varianceDiv.classList.add('hidden');
+      }
+    });
+
+    if (hasVariance) {
+      varianceAlert.classList.remove('hidden');
+    } else {
+      varianceAlert.classList.add('hidden');
+    }
+  };
+
+  const updateProgress = (percent: number, message: string) => {
+    progressFill.style.width = `${percent}%`;
+    progressMessage.textContent = message;
+  };
+
+  const handleSubmit = async (e: Event) => {
+    e.preventDefault();
+
+    const lineItems = lineItemsContainer.querySelectorAll('.line-item');
+    
+    // Show progress modal
+    progressModal.classList.remove('hidden');
+    submitBtn.disabled = true;
+    updateProgress(10, 'Preparing receiving record...');
+
+    try {
+      // Collect form data
+      const supplierId = supplierSelect.value;
+      const receivingDate = new Date(receivingDateInput.value);
+      const documentType = (document.getElementById('documentType') as HTMLSelectElement).value;
+      const locationId = locationSelect.value;
+
+      updateProgress(30, 'Validating line items...');
+
+      // Collect line items
+      const lineItemsData: any[] = [];
+      let hasVariance = false;
+
+      lineItems.forEach(item => {
+        const skuSelect = item.querySelector('.line-item-sku') as HTMLSelectElement;
+        const quantityInput = item.querySelector('.line-item-quantity') as HTMLInputElement;
+        const expectedInput = item.querySelector('.line-item-expected') as HTMLInputElement;
+        
+        const sku = skuSelect?.value;
+        const quantity = parseFloat(quantityInput?.value);
+        const expectedQty = expectedInput?.value;
+
+        console.log('Collecting line item:', {
+          sku,
+          quantity,
+          expectedQty,
+          skuSelect: skuSelect,
+          quantityInput: quantityInput,
+          hasValue: !!sku && !isNaN(quantity)
+        });
+
+        // Skip items without SKU or quantity
+        if (!sku || !quantity || isNaN(quantity)) {
+          console.warn('Skipping invalid line item:', { sku, quantity, isNaN: isNaN(quantity) });
+          return;
+        }
+
+        const lineItemData: any = { sku, quantity, locationId };
+
+        if (expectedQty) {
+          const expected = parseFloat(expectedQty);
+          lineItemData.expectedQuantity = expected;
+
+          const variance = Math.abs(quantity - expected) / expected;
+          if (variance > 0.05) hasVariance = true;
+        }
+
+        lineItemsData.push(lineItemData);
+      });
+
+      console.log('Line items to save:', lineItemsData);
+
+      if (lineItemsData.length === 0) {
+        alert('Warning: No valid line items to save. Make sure products are selected in the SKU dropdown for each line item.');
+        progressModal.classList.add('hidden');
+        submitBtn.disabled = false;
+        return;
+      }
+
+      updateProgress(60, 'Creating receiving record...');
+
+      // Generate receiving ID
+      const receivingId = `RCV-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
+
+      // Create receiving record
+      const receivingData = {
+        receivingId,
+        supplierId,
+        receivingDate: Timestamp.fromDate(receivingDate),
+        documentType,
+        status: 'completed',
+        hasVariance,
+        lineItems: lineItemsData,
+        createdAt: Timestamp.now(),
+        updatedAt: Timestamp.now()
+      };
+
+      const receivingRef = collection(db!, 'receiving_records');
+      const docRef = await addDoc(receivingRef, receivingData);
+      
+      console.log('Receiving record created:', docRef.id);
+      console.log('Saved data:', receivingData);
+      console.log('Line items saved:', receivingData.lineItems);
+
+      updateProgress(80, 'Updating inventory...');
+
+      // Update inventory for each line item
+      await inventoryService.processReceiving({
+        receivingId,
+        supplierId,
+        receivingDate: receivingDate,
+        documentType,
+        lineItems: lineItemsData,
+        status: 'completed'
+      });
+
+      updateProgress(100, 'Complete!');
+
+      // Redirect after a short delay
+      setTimeout(() => {
+        alert('Receiving record created successfully!');
+        window.location.href = '/receiving';
+      }, 500);
+
+    } catch (error) {
+      console.error('Error creating receiving record:', error);
+      alert(`Error: ${error instanceof Error ? error.message : 'Failed to create record'}`);
+      progressModal.classList.add('hidden');
+      submitBtn.disabled = false;
+    }
+  };
+
+  // Event listeners
+  addLineBtn.addEventListener('click', addLineItem);
+  receivingForm.addEventListener('submit', handleSubmit);
+
+  // File upload handlers
+  documentUpload.addEventListener('change', (e) => {
+    const file = (e.target as HTMLInputElement).files?.[0];
+    if (file) {
+      uploadedFile = file;
+      fileName.textContent = file.name;
+      parseBtn.classList.remove('hidden');
+    } else {
+      uploadedFile = null;
+      fileName.textContent = 'Choose a file or drag and drop';
+      parseBtn.classList.add('hidden');
+    }
+  });
+
+  parseBtn.addEventListener('click', async () => {
+    if (!uploadedFile) return;
+
+    (parseBtn as HTMLButtonElement).disabled = true;
+    parseBtn.innerHTML = '<span class="material-symbols-outlined">refresh</span> Parsing...';
+
+    try {
+      const parsed = await receivingDocumentParser.parseFile(uploadedFile);
+      
+      console.log('Parsed document:', parsed);
+      console.log('Number of items parsed:', parsed.lineItems.length);
+      
+      // Clear existing line items
+      lineItemsContainer.innerHTML = '';
+      lineItemCounter = 0;
+
+      // Add parsed items as line items
+      parsed.lineItems.forEach(item => {
+        console.log('Processing parsed item:', item);
+        addLineItem();
+        
+        // Get the last added line item
+        const lastItem = lineItemsContainer.lastElementChild as HTMLElement;
+        
+        // Try to match by supplier code or description
+        const skuSelect = lastItem.querySelector('.line-item-sku') as HTMLSelectElement;
+        const descInput = lastItem.querySelector('.line-item-description') as HTMLInputElement;
+        const qtyInput = lastItem.querySelector('.line-item-quantity') as HTMLInputElement;
+        const expectedInput = lastItem.querySelector('.line-item-expected') as HTMLInputElement;
+
+        // Try to find matching product
+        if (item.supplierCode) {
+          const matchedProduct = products.find(p => 
+            p.sku.toLowerCase() === item.supplierCode?.toLowerCase()
+          );
+          if (matchedProduct) {
+            skuSelect.value = matchedProduct.sku;
+            descInput.value = matchedProduct.description;
+            console.log('Matched product:', matchedProduct.sku);
+          } else {
+            // Try fuzzy match by description
+            const fuzzyMatch = products.find(p =>
+              p.description.toLowerCase().includes(item.description.toLowerCase().substring(0, 10)) ||
+              item.description.toLowerCase().includes(p.description.toLowerCase().substring(0, 10))
+            );
+            if (fuzzyMatch) {
+              skuSelect.value = fuzzyMatch.sku;
+              descInput.value = fuzzyMatch.description;
+              console.log('Fuzzy matched product:', fuzzyMatch.sku);
+            } else {
+              descInput.value = item.description;
+              console.warn('No match found for:', item.supplierCode, item.description);
+            }
+          }
+        } else {
+          // Try to match by description only
+          const fuzzyMatch = products.find(p =>
+            p.description.toLowerCase().includes(item.description.toLowerCase().substring(0, 10)) ||
+            item.description.toLowerCase().includes(p.description.toLowerCase().substring(0, 10))
+          );
+          if (fuzzyMatch) {
+            skuSelect.value = fuzzyMatch.sku;
+            descInput.value = fuzzyMatch.description;
+            console.log('Description matched product:', fuzzyMatch.sku);
+          } else {
+            descInput.value = item.description;
+            console.warn('No match found for description:', item.description);
+          }
+        }
+
+        // Set quantities
+        qtyInput.value = item.quantity.toString();
+        if (item.expectedQuantity) {
+          expectedInput.value = item.expectedQuantity.toString();
+        }
+      });
+
+      // Show empty state if no items were parsed
+      if (parsed.lineItems.length === 0) {
+        emptyState.classList.remove('hidden');
+        lineItemsContainer.classList.add('hidden');
+      }
+
+      checkVariances();
+
+      // Show warnings if any
+      if (parsed.warnings && parsed.warnings.length > 0) {
+        const warningMsg = `Document parsed successfully with ${parsed.warnings.length} warning(s):\n\n` +
+          parsed.warnings.slice(0, 3).join('\n') +
+          (parsed.warnings.length > 3 ? `\n... and ${parsed.warnings.length - 3} more` : '');
+        alert(warningMsg);
+      } else {
+        alert(`Successfully parsed ${parsed.lineItems.length} item(s) from document!`);
+      }
+
+      parseBtn.innerHTML = '<span class="material-symbols-outlined">check_circle</span> Parsed!';
+      setTimeout(() => {
+        parseBtn.innerHTML = '<span class="material-symbols-outlined">auto_awesome</span> Parse Document';
+        (parseBtn as HTMLButtonElement).disabled = false;
+      }, 2000);
+
+    } catch (error) {
+      console.error('Parse error:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Failed to parse document';
+      alert(`Error: ${errorMsg}`);
+      
+      parseBtn.innerHTML = '<span class="material-symbols-outlined">auto_awesome</span> Parse Document';
+      (parseBtn as HTMLButtonElement).disabled = false;
+    }
+  });
+
+  loadData();
+</script>
+
+<style>
+  .receiving-new-page {
+    padding: 1.5rem;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  .page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 2rem;
+    gap: 2rem;
+  }
+
+  .page-header h1 {
+    font-size: 2rem;
+    font-weight: 600;
+    margin: 0 0 0.5rem 0;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+  }
+
+  .subtitle {
+    color: var(--text-secondary);
+    margin: 0;
+  }
+
+  /* Loading and Error States */
+  .loading-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 2rem;
+  }
+
+  .spinner {
+    width: 48px;
+    height: 48px;
+    border: 4px solid var(--border-color);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .hidden {
+    display: none !important;
+  }
+
+  .alert {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 1rem;
+    border-radius: 8px;
+    margin-bottom: 1.5rem;
+    border: 1px solid;
+  }
+
+  .alert-error {
+    background: #fef2f2;
+    color: #991b1b;
+    border-color: #fca5a5;
+  }
+
+  .alert-warning {
+    background: #fffbeb;
+    color: #92400e;
+    border-color: #fcd34d;
+  }
+
+  .alert .material-symbols-outlined {
+    font-size: 24px;
+  }
+
+  /* Cards */
+  .card {
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    margin-bottom: 1.5rem;
+    overflow: hidden;
+  }
+
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem;
+    background: var(--surface-secondary);
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .card-header h2 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .card-body {
+    padding: 1.5rem;
+  }
+
+  /* Form Elements */
+  .form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1rem;
+  }
+
+  .form-group {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .form-group label {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-bottom: 0.5rem;
+  }
+
+  .required {
+    color: #ef4444;
+  }
+
+  .form-input {
+    padding: 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 0.875rem;
+  }
+
+  .form-input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  }
+
+  .form-input[readonly] {
+    background: var(--surface-secondary);
+    cursor: not-allowed;
+  }
+
+  /* File Upload */
+  .file-hint {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    font-weight: 400;
+    margin-left: 0.5rem;
+  }
+
+  .file-upload-wrapper {
+    position: relative;
+    border: 2px dashed var(--border-color);
+    border-radius: 6px;
+    padding: 2rem;
+    text-align: center;
+    background: var(--surface-secondary);
+    transition: all 0.2s;
+  }
+
+  .file-upload-wrapper:hover {
+    border-color: var(--primary);
+    background: white;
+  }
+
+  .file-input {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  .file-upload-display {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    pointer-events: none;
+  }
+
+  .file-upload-display .material-symbols-outlined {
+    font-size: 48px;
+    color: var(--text-secondary);
+  }
+
+  .file-upload-display span:last-child {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+  }
+
+  /* Empty State */
+  .empty-state {
+    text-align: center;
+    padding: 3rem 1rem;
+  }
+
+  .empty-icon {
+    font-size: 64px;
+    color: var(--text-secondary);
+    margin-bottom: 1rem;
+  }
+
+  .empty-state h3 {
+    margin: 0 0 0.5rem 0;
+    color: var(--text-primary);
+  }
+
+  .empty-state p {
+    color: var(--text-secondary);
+    margin: 0;
+  }
+
+  /* Line Items */
+  .line-items-container {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .line-item {
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 1rem;
+    background: var(--surface-secondary);
+  }
+
+  .line-item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+  }
+
+  .line-item-number {
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+
+  .line-item-body {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+  }
+
+  .line-item-variance {
+    margin-top: 1rem;
+    padding: 0.75rem;
+    background: #fffbeb;
+    border-left: 4px solid #f59e0b;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    color: #92400e;
+  }
+
+  .line-item-variance .material-symbols-outlined {
+    color: #f59e0b;
+    font-size: 20px;
+  }
+
+  /* Buttons */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.5rem;
+    border-radius: 6px;
+    font-weight: 500;
+    border: none;
+    cursor: pointer;
+    text-decoration: none;
+    transition: all 0.2s;
+  }
+
+  .btn-primary {
+    background: var(--primary);
+    color: white;
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    background: var(--primary-dark);
+  }
+
+  .btn-secondary {
+    background: white;
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+  }
+
+  .btn-secondary:hover {
+    background: var(--surface-secondary);
+  }
+
+  .btn-sm {
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+  }
+
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .btn-icon {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 0.5rem;
+    border-radius: 4px;
+    transition: all 0.2s;
+  }
+
+  .btn-icon:hover {
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+  }
+
+  /* Form Actions */
+  .form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+    padding: 1.5rem;
+    background: var(--surface-secondary);
+    border-top: 1px solid var(--border-color);
+    margin: 1.5rem -1.5rem -1.5rem;
+    border-radius: 0 0 8px 8px;
+  }
+
+  /* Progress Modal */
+  .modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  }
+
+  .modal-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+  }
+
+  .modal-content {
+    position: relative;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+    max-width: 500px;
+    width: 90%;
+    z-index: 1001;
+  }
+
+  .modal-sm {
+    max-width: 400px;
+  }
+
+  .modal-body {
+    padding: 2rem;
+  }
+
+  .modal-body h3 {
+    margin: 0 0 1.5rem 0;
+    font-size: 1.25rem;
+    color: var(--text-primary);
+  }
+
+  .progress-bar {
+    width: 100%;
+    height: 12px;
+    background: var(--surface-secondary);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 1rem;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: var(--primary);
+    transition: width 0.3s ease;
+    border-radius: 6px;
+  }
+
+  .progress-message {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin: 0;
+  }
+
+  .text-center {
+    text-align: center;
+  }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .receiving-new-page {
+      padding: 1rem;
+    }
+
+    .page-header {
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .form-grid,
+    .line-item-body {
+      grid-template-columns: 1fr;
+    }
+
+    .form-actions {
+      flex-direction: column;
+    }
+
+    .form-actions .btn {
+      width: 100%;
+      justify-content: center;
+    }
+  }
+</style>

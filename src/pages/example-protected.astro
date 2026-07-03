@@ -1,0 +1,79 @@
+---
+/**
+ * Example Protected Page
+ * 
+ * This page demonstrates the MainLayout component with authentication enabled.
+ * It requires users to be logged in to access.
+ * 
+ * This is a demonstration file showing how to use MainLayout.
+ */
+import MainLayout from '../layouts/MainLayout.astro';
+---
+
+<MainLayout title="Protected Page Example" requireAuth={true}>
+  <div class="card">
+    <h1>Protected Page Example</h1>
+    <p class="text-muted">
+      This page requires authentication. You can only see this content if you are logged in.
+    </p>
+
+    <h2 class="mt-lg">MainLayout Features</h2>
+    <ul>
+      <li>✅ Server-side authentication checking</li>
+      <li>✅ Automatic redirect to /login if not authenticated</li>
+      <li>✅ Role-based navigation menu</li>
+      <li>✅ Responsive design</li>
+      <li>✅ Global styles applied</li>
+    </ul>
+
+    <h2 class="mt-lg">User Information</h2>
+    <p>The navigation bar displays your user information including:</p>
+    <ul>
+      <li>Display name</li>
+      <li>Current role</li>
+      <li>Logout button</li>
+    </ul>
+
+    <h2 class="mt-lg">Try Different Role Requirements</h2>
+    <p>
+      You can also restrict pages to specific roles by adding the 
+      <code>requiredRole</code> prop:
+    </p>
+    <pre class="card mt-md">
+&lt;MainLayout 
+  title="Admin Only" 
+  requireAuth={true} 
+  requiredRole="Administrator"
+&gt;
+  &lt;!-- Content only administrators can see --&gt;
+&lt;/MainLayout&gt;
+    </pre>
+  </div>
+</MainLayout>
+
+<style>
+  code {
+    background-color: var(--color-surface);
+    padding: 0.125rem 0.25rem;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: 0.875em;
+  }
+
+  pre {
+    background-color: var(--color-surface);
+    padding: var(--spacing-md);
+    border-radius: var(--radius-md);
+    overflow-x: auto;
+    font-size: 0.875rem;
+  }
+
+  ul {
+    margin-left: var(--spacing-lg);
+    margin-bottom: var(--spacing-md);
+  }
+
+  li {
+    margin-bottom: var(--spacing-sm);
+  }
+</style>

@@ -1,0 +1,1259 @@
+---
+/**
+ * Pricelist Upload Page
+ * 
+ * Provides file upload interface for supplier pricelists supporting CSV, Excel, and PDF formats.
+ * Uses client-side rendering for real-time Firestore integration.
+ * 
+ * Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 20.6
+ */
+
+import ModernLayout from '../../layouts/ModernLayout.astro';
+
+// Check if there was an upload result in the URL params
+const url = new URL(Astro.request.url);
+const uploadSuccess = url.searchParams.get('success');
+const uploadError = url.searchParams.get('error');
+const itemCount = url.searchParams.get('itemCount');
+
+// Disable caching to ensure fresh data
+Astro.response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+---
+
+<ModernLayout title="Upload Pricelist">
+  <div class="upload-page">
+    <!-- Page Header -->
+    <div class="page-header">
+      <div>
+        <a href="/pricelists" class="back-link">← Back to Pricelists</a>
+        <h1>📤 Upload Supplier Pricelist</h1>
+        <p class="subtitle">
+          Upload pricelists in CSV, Excel, or PDF format for automatic processing
+        </p>
+      </div>
+    </div>
+
+    <!-- Display success or error messages from previous upload -->
+    {uploadSuccess === 'true' && (
+      <div class="alert alert-success">
+        <span class="material-symbols-outlined">check_circle</span>
+        <div>
+          <strong>Pricelist uploaded successfully!</strong>
+          {itemCount && <p style="margin-top: 0.5rem;">Processed {itemCount} items.</p>}
+          <p style="margin-top: 0.5rem;">
+            <a href="/pricelists" style="color: inherit; text-decoration: underline;">View all pricelists</a>
+          </p>
+        </div>
+      </div>
+    )}
+
+    {uploadError && (
+      <div class="alert alert-error">
+        <span class="material-symbols-outlined">error</span>
+        <div>
+          <strong>Upload Error:</strong> {decodeURIComponent(uploadError)}
+        </div>
+      </div>
+    )}
+
+    <!-- Loading State -->
+    <div id="loading-state" class="alert alert-info">
+      <div class="spinner-small"></div>
+      <div>Loading suppliers from Firestore...</div>
+    </div>
+
+    <!-- Error Display -->
+    <div id="error-display" class="alert alert-error hidden">
+      <span class="material-symbols-outlined">error</span>
+      <div>
+        <strong>Error:</strong> <span id="error-message"></span>
+      </div>
+    </div>
+
+    <!-- No Suppliers Alert -->
+    <div id="no-suppliers-alert" class="alert alert-info hidden">
+      <span class="material-symbols-outlined">info</span>
+      <div>
+        <strong>No suppliers found!</strong>
+        <p style="margin-top: 0.5rem;">You need to create at least one active supplier before uploading pricelists.</p>
+        <p style="margin-top: 0.5rem;">
+          <a href="/suppliers/new" style="color: inherit; text-decoration: underline;">Create a supplier now</a>
+        </p>
+      </div>
+    </div>
+
+    <!-- Upload Form -->
+    <div class="card" id="upload-form-card">
+      <div class="card-header">
+        <h2>Upload File</h2>
+        <span class="material-symbols-outlined" style="color: var(--primary);">cloud_upload</span>
+      </div>
+      <div class="card-body">
+        <form 
+          id="uploadForm" 
+          class="upload-form"
+          enctype="multipart/form-data"
+        >
+          <!-- Supplier Selection -->
+          <div class="form-group">
+            <label for="supplierId">
+              <span class="material-symbols-outlined" style="font-size: 18px; vertical-align: middle;">store</span>
+              Supplier <span class="required">*</span>
+            </label>
+            <select 
+              id="supplierId" 
+              name="supplierId" 
+              required
+              class="form-select"
+            >
+              <option value="">-- Select a supplier --</option>
+              <!-- Options populated by JavaScript -->
+            </select>
+            <small id="supplier-help-text">
+              Loading suppliers...
+            </small>
+          </div>
+
+          <!-- File Upload -->
+          <div class="form-group">
+            <label for="pricelistFile">
+              <span class="material-symbols-outlined" style="font-size: 18px; vertical-align: middle;">upload_file</span>
+              Pricelist File <span class="required">*</span>
+            </label>
+            <div class="file-upload-area" id="fileUploadArea">
+              <input
+                type="file"
+                id="pricelistFile"
+                name="pricelistFile"
+                accept=".csv,.xls,.xlsx,.pdf"
+                required
+                class="file-input"
+              />
+              <div class="file-upload-content">
+                <span class="material-symbols-outlined file-icon">description</span>
+                <p class="file-text">
+                  <strong>Click to browse</strong> or drag and drop
+                </p>
+                <p class="file-hint">CSV, Excel (.xls, .xlsx), or PDF (max 10MB)</p>
+              </div>
+              <div id="fileInfo" class="file-info hidden">
+                <span class="material-symbols-outlined">check_circle</span>
+                <span id="fileName"></span>
+                <button type="button" id="removeFile" class="btn-ghost" style="padding: 0.25rem;">
+                  <span class="material-symbols-outlined" style="font-size: 18px;">close</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Error display area -->
+          <div id="errorContainer" class="hidden"></div>
+
+          <!-- Progress indicator (hidden by default) -->
+          <div id="progressContainer" class="hidden progress-section">
+            <div class="loading-spinner">
+              <div class="spinner"></div>
+            </div>
+            <div id="progressBarContainer" class="mt-4"></div>
+            <p id="progressMessage" class="progress-text">
+              Preparing upload...
+            </p>
+          </div>
+
+          <!-- Submit Button -->
+          <div class="form-actions">
+            <a href="/pricelists" class="btn btn-secondary">
+              <span class="material-symbols-outlined">arrow_back</span>
+              Cancel
+            </a>
+            <button 
+              type="submit" 
+              class="btn btn-primary"
+              id="submitButton"
+            >
+              <span class="material-symbols-outlined">cloud_upload</span>
+              Upload and Process
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Help Section -->
+    <div class="card">
+      <div class="card-header">
+        <h2>File Format Requirements</h2>
+        <span class="material-symbols-outlined" style="color: var(--primary);">help</span>
+      </div>
+      <div class="card-body">
+        <div class="format-requirements">
+          <div class="format-section">
+            <div class="format-icon" style="background: #dbeafe;">
+              <span class="material-symbols-outlined" style="color: #1e40af;">table_view</span>
+            </div>
+            <h4>Required Columns</h4>
+            <ul>
+              <li><strong>Supplier Code:</strong> Unique identifier from supplier</li>
+              <li><strong>Description:</strong> Product name or description</li>
+              <li><strong>Price:</strong> Product price or cost</li>
+              <li><strong>UOM</strong> (optional): Unit of measure</li>
+            </ul>
+          </div>
+
+          <div class="format-section">
+            <div class="format-icon" style="background: #e9d5ff;">
+              <span class="material-symbols-outlined" style="color: #7c3aed;">description</span>
+            </div>
+            <h4>Supported Formats</h4>
+            <ul>
+              <li><strong>CSV:</strong> Comma-separated with header row</li>
+              <li><strong>Excel:</strong> .xls or .xlsx format</li>
+              <li><strong>PDF:</strong> Tabular format with readable text</li>
+            </ul>
+          </div>
+
+          <div class="format-section">
+            <div class="format-icon" style="background: #d1fae5;">
+              <span class="material-symbols-outlined" style="color: #059669;">speed</span>
+            </div>
+            <h4>Performance</h4>
+            <ul>
+              <li>Up to 10,000 items processed quickly</li>
+              <li>Automatic product matching</li>
+              <li>Instant price change detection</li>
+              <li>Review results after upload</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</ModernLayout>
+
+<script>
+  // Client-side upload handling with Firestore integration and CSV parsing
+  import { db, auth } from '../../services/firebase';
+  import { collection, addDoc, serverTimestamp, writeBatch, doc, query, where, getDocs, updateDoc, orderBy, limit } from 'firebase/firestore';
+  import { supplierService } from '../../services/suppliers/SupplierService';
+  import type { Supplier } from '../../types/models';
+
+  // Elements
+  const loadingState = document.getElementById('loading-state')!;
+  const errorDisplay = document.getElementById('error-display')!;
+  const errorMessage = document.getElementById('error-message')!;
+  const noSuppliersAlert = document.getElementById('no-suppliers-alert')!;
+  const uploadFormCard = document.getElementById('upload-form-card')!;
+  const supplierSelect = document.getElementById('supplierId') as HTMLSelectElement;
+  const supplierHelpText = document.getElementById('supplier-help-text')!;
+  
+  const form = document.getElementById('uploadForm') as HTMLFormElement;
+  const submitButton = document.getElementById('submitButton') as HTMLButtonElement;
+  const progressContainer = document.getElementById('progressContainer') as HTMLDivElement;
+  const progressBarContainer = document.getElementById('progressBarContainer') as HTMLDivElement;
+  const progressMessage = document.getElementById('progressMessage') as HTMLParagraphElement;
+  const errorContainer = document.getElementById('errorContainer') as HTMLDivElement;
+  const fileInput = document.getElementById('pricelistFile') as HTMLInputElement;
+  const fileUploadArea = document.getElementById('fileUploadArea') as HTMLDivElement;
+  const fileInfo = document.getElementById('fileInfo') as HTMLDivElement;
+  const fileName = document.getElementById('fileName') as HTMLSpanElement;
+  const removeFileBtn = document.getElementById('removeFile') as HTMLButtonElement;
+
+  let activeSuppliers: Supplier[] = [];
+
+  // Load suppliers from Firestore
+  const loadSuppliers = async () => {
+    try {
+      loadingState.classList.remove('hidden');
+      errorDisplay.classList.add('hidden');
+      noSuppliersAlert.classList.add('hidden');
+      uploadFormCard.style.opacity = '0.5';
+
+      // Fetch active suppliers using the service
+      activeSuppliers = await supplierService.getActiveSuppliers();
+
+      // Hide loading
+      loadingState.classList.add('hidden');
+      uploadFormCard.style.opacity = '1';
+
+      if (activeSuppliers.length === 0) {
+        // No suppliers available
+        noSuppliersAlert.classList.remove('hidden');
+        submitButton.disabled = true;
+        supplierHelpText.textContent = 'No active suppliers available. Please create one first.';
+      } else {
+        // Populate supplier dropdown
+        activeSuppliers.forEach(supplier => {
+          const option = document.createElement('option');
+          option.value = supplier.supplierId;
+          option.textContent = supplier.name;
+          supplierSelect.appendChild(option);
+        });
+
+        supplierHelpText.textContent = `Select the supplier for this pricelist (${activeSuppliers.length} available)`;
+        submitButton.disabled = false;
+      }
+
+    } catch (err) {
+      loadingState.classList.add('hidden');
+      errorDisplay.classList.remove('hidden');
+      uploadFormCard.style.opacity = '1';
+      
+      const errMsg = err instanceof Error ? err.message : 'Failed to load suppliers';
+      errorMessage.textContent = errMsg;
+      
+      console.error('Error loading suppliers:', err);
+      submitButton.disabled = true;
+    }
+  };
+
+  /**
+   * Parse CSV file content
+   */
+  const parseCSV = (content: string): Array<{supplierCode: string, description: string, price: number, uom?: string}> => {
+    const lines = content.trim().split('\n');
+    if (lines.length < 2) {
+      throw new Error('CSV file must have at least a header row and one data row');
+    }
+
+    // Parse header
+    const header = lines[0].split(',').map(h => h.trim().toLowerCase());
+    
+    // Find column indices with flexible but safe matching
+    // Code column - matches various code/sku patterns
+    const codeIdx = header.findIndex(h => 
+      h === 'code' || h === 'sku' || 
+      h.includes('supplier') && h.includes('code') ||
+      h.includes('product') && h.includes('code') ||
+      h.includes('item') && h.includes('code')
+    );
+    
+    // Description column - matches description/name patterns
+    const descIdx = header.findIndex(h => 
+      h === 'description' || h === 'name' || h === 'product' || h === 'item' ||
+      h.includes('description') || h.includes('product') && h.includes('name') ||
+      h.includes('item') && h.includes('name')
+    );
+    
+    // Price column - matches price/cost but not UOM-related
+    const priceIdx = header.findIndex(h => 
+      (h === 'price' || h === 'cost' || h.includes('price') || h.includes('cost')) &&
+      !h.includes('uom') && !h.includes('unit_of_measure')
+    );
+    
+    // UOM column - matches unit/uom but not price-related
+    const uomIdx = header.findIndex(h => 
+      (h === 'uom' || h === 'unit' || h === 'um' || h === 'units' || h.includes('unit_of_measure')) &&
+      !h.includes('price') && !h.includes('cost')
+    );
+
+    if (codeIdx === -1 || descIdx === -1 || priceIdx === -1) {
+      throw new Error('CSV must have columns for: Supplier Code/SKU, Description/Product Name, and Price/Cost');
+    }
+
+    // Parse data rows
+    const items: Array<{supplierCode: string, description: string, price: number, uom?: string}> = [];
+    
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue; // Skip empty lines
+      
+      const values = line.split(',').map(v => v.trim());
+      
+      const supplierCode = values[codeIdx] || '';
+      const description = values[descIdx] || '';
+      const priceStr = values[priceIdx] || '0';
+      const uom = uomIdx !== -1 ? values[uomIdx] : undefined;
+      
+      // Clean and parse price (remove currency symbols, commas)
+      const cleanPrice = priceStr.replace(/[₱$,]/g, '').trim();
+      const price = parseFloat(cleanPrice);
+      
+      if (supplierCode && description && !isNaN(price)) {
+        items.push({
+          supplierCode,
+          description,
+          price,
+          uom
+        });
+      }
+    }
+
+    if (items.length === 0) {
+      throw new Error('No valid items found in CSV file');
+    }
+
+    return items;
+  };
+
+  // File upload area interactions
+  fileUploadArea.addEventListener('click', (e) => {
+    if (e.target !== removeFileBtn && !removeFileBtn.contains(e.target as Node)) {
+      fileInput.click();
+    }
+  });
+
+  fileUploadArea.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    fileUploadArea.classList.add('drag-over');
+  });
+
+  fileUploadArea.addEventListener('dragleave', () => {
+    fileUploadArea.classList.remove('drag-over');
+  });
+
+  fileUploadArea.addEventListener('drop', (e) => {
+    e.preventDefault();
+    fileUploadArea.classList.remove('drag-over');
+    
+    const files = e.dataTransfer?.files;
+    if (files && files.length > 0) {
+      fileInput.files = files;
+      updateFileInfo(files[0]);
+    }
+  });
+
+  fileInput.addEventListener('change', (e) => {
+    const target = e.target as HTMLInputElement;
+    if (target.files && target.files.length > 0) {
+      updateFileInfo(target.files[0]);
+    }
+  });
+
+  removeFileBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    fileInput.value = '';
+    fileInfo.classList.add('hidden');
+    fileUploadArea.querySelector('.file-upload-content')?.classList.remove('hidden');
+  });
+
+  function updateFileInfo(file: File) {
+    fileName.textContent = file.name;
+    fileInfo.classList.remove('hidden');
+    fileUploadArea.querySelector('.file-upload-content')?.classList.add('hidden');
+  }
+
+  /**
+   * Update progress indicator with percentage
+   */
+  function updateProgress(percentage: number, message: string) {
+    if (progressMessage) {
+      progressMessage.textContent = message;
+    }
+    
+    if (progressBarContainer) {
+      progressBarContainer.innerHTML = `
+        <div class="progress-bar">
+          <div class="progress-fill" style="width: ${percentage}%"></div>
+        </div>
+        <p class="progress-percentage">${Math.round(percentage)}%</p>
+      `;
+    }
+  }
+
+  function showError(message: string) {
+    errorContainer.innerHTML = `
+      <div class="alert alert-error">
+        <span class="material-symbols-outlined">error</span>
+        <div>${message}</div>
+      </div>
+    `;
+    errorContainer.classList.remove('hidden');
+    errorContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const formData = new FormData(form);
+    const supplierId = formData.get('supplierId') as string;
+    const file = formData.get('pricelistFile') as File;
+
+    errorContainer.classList.add('hidden');
+    errorContainer.innerHTML = '';
+
+    if (!supplierId) {
+      showError('Please select a supplier');
+      return;
+    }
+
+    if (!file) {
+      showError('Please select a file to upload');
+      return;
+    }
+
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    if (file.size > maxSize) {
+      showError('File size exceeds 10MB limit. Please choose a smaller file.');
+      return;
+    }
+
+    const fileNameLower = file.name.toLowerCase();
+    const validExtensions = ['.csv', '.xls', '.xlsx', '.pdf'];
+    const hasValidExtension = validExtensions.some(ext => fileNameLower.endsWith(ext));
+    
+    if (!hasValidExtension) {
+      showError('Invalid file format. Please upload a CSV, Excel, or PDF file.');
+      return;
+    }
+
+    // For now, only support CSV parsing
+    if (!fileNameLower.endsWith('.csv')) {
+      showError('Currently only CSV files are supported. Excel and PDF support coming soon!');
+      return;
+    }
+
+    submitButton.disabled = true;
+    progressContainer.classList.remove('hidden');
+    updateProgress(0, 'Reading file...');
+
+    try {
+      // Read file content
+      const fileContent = await file.text();
+      updateProgress(15, 'Parsing CSV data...');
+      
+      // Parse CSV
+      let items;
+      try {
+        items = parseCSV(fileContent);
+      } catch (parseErr) {
+        throw new Error(`Failed to parse CSV: ${parseErr instanceof Error ? parseErr.message : 'Invalid format'}`);
+      }
+      
+      console.log(`Parsed ${items.length} items from CSV`);
+      updateProgress(30, `Parsed ${items.length} items...`);
+
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      updateProgress(40, 'Creating pricelist...');
+
+      const currentUser = auth?.currentUser;
+      const uploadedBy = currentUser ? currentUser.uid : 'demo-user';
+      
+      // Find supplier name from loaded suppliers
+      const supplier = activeSuppliers.find(s => s.supplierId === supplierId);
+      const supplierName = supplier ? supplier.name : 'Unknown';
+      
+      // Create pricelist document
+      const pricelistsRef = collection(db!, 'pricelists');
+      const pricelistDoc = await addDoc(pricelistsRef, {
+        supplierId: supplierId,
+        supplierName: supplierName,
+        uploadDate: serverTimestamp(),
+        fileName: file.name,
+        itemCount: items.length,
+        uploadedBy: uploadedBy,
+        status: 'processing',
+        processedAt: serverTimestamp()
+      });
+
+      const pricelistId = pricelistDoc.id;
+      console.log(`Created pricelist: ${pricelistId}`);
+
+      updateProgress(60, 'Storing items in database...');
+
+      // Store items in batches (Firestore batch limit is 500)
+      const batchSize = 500;
+      for (let i = 0; i < items.length; i += batchSize) {
+        const batch = items.slice(i, i + batchSize);
+        
+        // Store each item
+        const itemsRef = collection(db!, 'pricelist_items');
+        const promises = batch.map(item => 
+          addDoc(itemsRef, {
+            pricelistId: pricelistId,
+            supplierId: supplierId,
+            supplierCode: item.supplierCode,
+            description: item.description,
+            price: item.price,
+            uom: item.uom || null,
+            matchStatus: 'unmatched',
+            matchedSKU: null,
+            isNewProduct: false,
+            createdAt: serverTimestamp()
+          })
+        );
+        
+        await Promise.all(promises);
+        
+        const progress = 60 + (20 * (i + batch.length) / items.length);
+        updateProgress(progress, `Stored ${Math.min(i + batch.length, items.length)} of ${items.length} items...`);
+      }
+
+      updateProgress(80, 'Matching products...');
+      
+      console.log('=== MATCHING DEBUG START ===');
+      console.log('Supplier ID:', supplierId);
+      console.log('Items to match:', items.length);
+      console.log('First 3 items:', items.slice(0, 3));
+      
+      // Run product matching with relaxed confidence threshold for better results
+      try {
+        console.log('Starting product matching...');
+        
+        // Import MatcherService dynamically
+        const { createMatcherService } = await import('../../services/matching/MatcherService');
+        
+        // Create matcher with lower confidence threshold for demo
+        const matcherService = createMatcherService({
+          confidenceThreshold: 0.60,  // Lower threshold for better matching (60% confidence)
+          useFuzzyMatcher: true,
+          useAIMatcher: false  // Disable AI matcher for now (requires API)
+        });
+        
+        console.log('MatcherService created with config:', { confidenceThreshold: 0.60, useFuzzyMatcher: true, useAIMatcher: false });
+        
+        // Prepare pricelist data for matching
+        const pricelistData = {
+          supplierId: supplierId,
+          items: items.map(item => ({
+            supplierCode: item.supplierCode,
+            description: item.description,
+            price: item.price,
+            uom: item.uom
+          })),
+          uploadDate: new Date()
+        };
+        
+        console.log(`Prepared ${pricelistData.items.length} items for matching`);
+        
+        // Run matching
+        const matchingResult = await matcherService.matchProducts(pricelistData);
+        
+        console.log('Matching results:', {
+          matched: matchingResult.matched.length,
+          suggestions: matchingResult.suggestions.length,
+          unmatched: matchingResult.unmatched.length
+        });
+        
+        console.log('Matched items:', matchingResult.matched);
+        console.log('Suggested items:', matchingResult.suggestions);
+        
+        updateProgress(90, 'Updating match results...');
+        
+        // Update pricelist_items with match results
+        const itemsRef = collection(db!, 'pricelist_items');
+        const itemsQuery = query(itemsRef, where('pricelistId', '==', pricelistId));
+        const itemsSnapshot = await getDocs(itemsQuery);
+        
+        // Create a map of supplier codes to Firestore document IDs
+        const itemDocMap = new Map();
+        itemsSnapshot.docs.forEach(doc => {
+          const data = doc.data();
+          itemDocMap.set(data.supplierCode, doc.id);
+        });
+        
+        // Update matched items
+        const updatePromises = [];
+        for (const match of matchingResult.matched) {
+          const docId = itemDocMap.get(match.supplierCode);
+          if (docId) {
+            updatePromises.push(
+              updateDoc(doc(db!, 'pricelist_items', docId), {
+                matchStatus: 'matched',
+                matchedSKU: match.internalSKU,
+                matchConfidence: match.confidence,
+                matchMethod: match.matchType || 'exact'  // Use matchType from ExactMatcher
+              })
+            );
+          }
+        }
+        
+        // Update suggested items
+        for (const suggestion of matchingResult.suggestions) {
+          const docId = itemDocMap.get(suggestion.supplierCode);
+          if (docId) {
+            updatePromises.push(
+              updateDoc(doc(db!, 'pricelist_items', docId), {
+                matchStatus: 'suggested',
+                matchedSKU: suggestion.suggestedSKU,
+                matchConfidence: suggestion.confidence,
+                matchMethod: 'fuzzy'  // Fuzzy matcher suggestions
+              })
+            );
+          }
+        }
+        
+        await Promise.all(updatePromises);
+        
+        console.log(`Updated ${updatePromises.length} items with match results`);
+        
+      } catch (matchError) {
+        console.error('Matching error:', matchError);
+        console.error('Error details:', matchError instanceof Error ? matchError.message : 'Unknown error');
+        console.error('Stack trace:', matchError instanceof Error ? matchError.stack : 'No stack trace');
+        
+        // Show warning but don't fail the upload
+        updateProgress(90, 'Products stored (matching skipped due to error)');
+        alert(`Warning: Product matching failed: ${matchError instanceof Error ? matchError.message : 'Unknown error'}. Items are saved but not matched.`);
+      }
+
+      // Update pricelist status to processed
+      await updateDoc(doc(db!, 'pricelists', pricelistId), {
+        status: 'processed'
+      });
+
+      updateProgress(95, 'Detecting price changes...');
+
+      // Detect price changes by comparing with previous pricelist from same supplier
+      try {
+        console.log('=== PRICE CHANGE DETECTION START ===');
+        
+        // Query for the most recent previous pricelist from same supplier
+        const previousPricelistsQuery = query(
+          collection(db!, 'pricelists'),
+          where('supplierId', '==', supplierId),
+          where('status', '==', 'processed'),
+          orderBy('uploadDate', 'desc'),
+          limit(2)  // Get current + previous
+        );
+        
+        console.log('Querying for previous pricelists...');
+        const previousPricelistsSnap = await getDocs(previousPricelistsQuery);
+        console.log(`Found ${previousPricelistsSnap.size} pricelists for supplier ${supplierId}`);
+        
+        // Filter out current pricelist and get the previous one
+        const previousPricelists = previousPricelistsSnap.docs.filter(doc => doc.id !== pricelistId);
+        
+        if (previousPricelists.length > 0) {
+          const previousPricelistDoc = previousPricelists[0];
+          const previousPricelistId = previousPricelistDoc.id;
+          
+          console.log(`Comparing against previous pricelist: ${previousPricelistId}`);
+          
+          // Fetch items from previous pricelist
+          const previousItemsQuery = query(
+            collection(db!, 'pricelist_items'),
+            where('pricelistId', '==', previousPricelistId)
+          );
+          const previousItemsSnap = await getDocs(previousItemsQuery);
+          
+          // Fetch items from current pricelist
+          const currentItemsQuery = query(
+            collection(db!, 'pricelist_items'),
+            where('pricelistId', '==', pricelistId)
+          );
+          const currentItemsSnap = await getDocs(currentItemsQuery);
+          
+          console.log(`Previous pricelist has ${previousItemsSnap.size} items`);
+          console.log(`Current pricelist has ${currentItemsSnap.size} items`);
+          
+          // Create price maps for comparison
+          const previousPrices = new Map();
+          previousItemsSnap.docs.forEach(doc => {
+            const data = doc.data();
+            previousPrices.set(data.supplierCode, {
+              price: data.price,
+              description: data.description,
+              matchedSKU: data.matchedSKU
+            });
+          });
+          
+          // Compare prices and store changes
+          const priceChangesRef = collection(db!, 'price_changes');
+          let changesDetected = 0;
+          let significantChanges = 0;
+          
+          for (const currentDoc of currentItemsSnap.docs) {
+            const currentData = currentDoc.data();
+            const supplierCode = currentData.supplierCode;
+            const previousData = previousPrices.get(supplierCode);
+            
+            // Only compare if product existed in previous pricelist
+            if (previousData && previousData.price !== currentData.price) {
+              const oldPrice = previousData.price;
+              const newPrice = currentData.price;
+              
+              // Calculate changes
+              const absoluteChange = Math.round((newPrice - oldPrice) * 100) / 100;
+              const percentageChange = oldPrice > 0 
+                ? Math.round(((newPrice - oldPrice) / oldPrice) * 100 * 100) / 100 
+                : 0;
+              const isSignificant = percentageChange > 10; // Only increases > 10% are significant
+              
+              // Use matched SKU if available, otherwise use supplier code
+              const sku = currentData.matchedSKU || supplierCode;
+              
+              // Store ALL price changes (increases and decreases)
+              await addDoc(priceChangesRef, {
+                sku: sku,
+                supplierId: supplierId,
+                supplierCode: supplierCode,
+                description: currentData.description,
+                oldPrice: oldPrice,
+                newPrice: newPrice,
+                absoluteChange: absoluteChange,
+                percentageChange: percentageChange,
+                changeDate: serverTimestamp(),
+                isSignificant: isSignificant,
+                oldPricelistId: previousPricelistId,
+                newPricelistId: pricelistId
+              });
+              
+              changesDetected++;
+              if (isSignificant) {
+                significantChanges++;
+              }
+              
+              const changeType = percentageChange > 0 ? 'increase' : 'decrease';
+              const changeSymbol = percentageChange > 0 ? '+' : '';
+              console.log(`Price ${changeType}: ${supplierCode} - ${oldPrice} → ${newPrice} (${changeSymbol}${percentageChange}%)${isSignificant ? ' [SIGNIFICANT]' : ''}`);
+            }
+          }
+          
+          console.log(`Detected ${changesDetected} price changes (${significantChanges} significant)`);
+          
+          if (significantChanges > 0) {
+            console.log(`⚠️ WARNING: ${significantChanges} significant price increases (>10%) detected!`);
+          }
+          
+        } else {
+          console.log('No previous pricelist found for comparison - this is the first upload for this supplier');
+        }
+        
+        console.log('=== PRICE CHANGE DETECTION END ===');
+        
+      } catch (priceChangeError) {
+        console.error('=== PRICE CHANGE DETECTION ERROR ===');
+        console.error('Error type:', priceChangeError instanceof Error ? priceChangeError.constructor.name : typeof priceChangeError);
+        console.error('Error message:', priceChangeError instanceof Error ? priceChangeError.message : String(priceChangeError));
+        console.error('Full error:', priceChangeError);
+        console.error('Error stack:', priceChangeError instanceof Error ? priceChangeError.stack : 'No stack trace');
+        
+        // Show alert with the error
+        alert(`Price change detection failed: ${priceChangeError instanceof Error ? priceChangeError.message : String(priceChangeError)}\n\nCheck console for details. Upload will continue.`);
+        
+        // Don't fail the upload if price change detection fails
+        console.log('Continuing despite price change detection error');
+      }
+
+      updateProgress(100, 'Upload complete!');
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Redirect to review page
+      window.location.href = `/pricelists/review?id=${pricelistId}`;
+
+    } catch (error: any) {
+      console.error('Upload error:', error);
+      showError(error.message || 'Upload failed. Please try again.');
+      submitButton.disabled = false;
+      progressContainer.classList.add('hidden');
+    }
+  });
+
+  // Load suppliers on page load
+  loadSuppliers();
+</script>
+
+<style>
+  .upload-page {
+    padding: 2rem;
+    max-width: 1000px;
+    margin: 0 auto;
+  }
+
+  .page-header {
+    margin-bottom: 2rem;
+  }
+
+  .back-link {
+    display: inline-block;
+    color: #2563eb;
+    text-decoration: none;
+    margin-bottom: 0.5rem;
+    font-size: 0.875rem;
+  }
+
+  .back-link:hover {
+    text-decoration: underline;
+  }
+
+  .page-header h1 {
+    font-size: 2rem;
+    color: #111827;
+    margin-bottom: 0.5rem;
+  }
+
+  .subtitle {
+    color: #6b7280;
+    font-size: 1rem;
+  }
+
+  .alert {
+    display: flex;
+    gap: 1rem;
+    padding: 1rem 1.5rem;
+    border-radius: 0.75rem;
+    margin-bottom: 2rem;
+    animation: slideIn 0.3s ease-out;
+  }
+
+  .alert-success {
+    background: #d1fae5;
+    border: 2px solid #10b981;
+    color: #065f46;
+  }
+
+  .alert-error {
+    background: #fee2e2;
+    border: 2px solid #ef4444;
+    color: #991b1b;
+  }
+
+  .alert-info {
+    background: #dbeafe;
+    border: 2px solid #3b82f6;
+    color: #1e40af;
+  }
+
+  .upload-form {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+  }
+
+  .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .form-group label {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #374151;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .required {
+    color: #ef4444;
+  }
+
+  .form-select {
+    padding: 0.75rem;
+    border: 1px solid #d1d5db;
+    border-radius: 0.5rem;
+    font-size: 0.875rem;
+    transition: all 0.2s;
+  }
+
+  .form-select:focus {
+    outline: none;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  }
+
+  .form-select:disabled {
+    background-color: #f3f4f6;
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  small {
+    font-size: 0.75rem;
+    color: #6b7280;
+  }
+
+  /* Modern File Upload Area */
+  .file-upload-area {
+    position: relative;
+    border: 2px dashed #d1d5db;
+    border-radius: 0.75rem;
+    padding: 2rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: #f9fafb;
+  }
+
+  .file-upload-area:hover {
+    border-color: #2563eb;
+    background: #eff6ff;
+  }
+
+  .file-upload-area.drag-over {
+    border-color: #2563eb;
+    background: #dbeafe;
+  }
+
+  .file-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    overflow: hidden;
+  }
+
+  .file-upload-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .file-icon {
+    font-size: 48px;
+    color: #9ca3af;
+  }
+
+  .file-text {
+    font-size: 0.875rem;
+    color: #374151;
+    margin: 0;
+  }
+
+  .file-hint {
+    font-size: 0.75rem;
+    color: #6b7280;
+    margin: 0;
+  }
+
+  .file-info {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1rem;
+    background: white;
+    border-radius: 0.5rem;
+    border: 1px solid #d1d5db;
+  }
+
+  .file-info .material-symbols-outlined {
+    color: #10b981;
+    font-size: 24px;
+  }
+
+  .progress-section {
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.75rem;
+    padding: 2rem;
+    text-align: center;
+  }
+
+  .loading-spinner {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 1rem;
+  }
+
+  .spinner {
+    width: 48px;
+    height: 48px;
+    border: 4px solid #e5e7eb;
+    border-top-color: #2563eb;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+  .spinner-small {
+    width: 24px;
+    height: 24px;
+    border: 3px solid #e5e7eb;
+    border-top-color: #2563eb;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  #upload-form-card {
+    transition: opacity 0.3s ease;
+  }
+
+  .progress-bar {
+    width: 100%;
+    height: 12px;
+    background: #e5e7eb;
+    border-radius: 9999px;
+    overflow: hidden;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #2563eb 0%, #3b82f6 100%);
+    background-size: 200% 100%;
+    animation: progressSlide 2s ease-in-out infinite;
+    transition: width 0.3s ease-out;
+  }
+
+  @keyframes progressSlide {
+    0%, 100% { background-position: 0% 0%; }
+    50% { background-position: 100% 0%; }
+  }
+
+  .progress-percentage {
+    margin-top: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #374151;
+  }
+
+  .progress-text {
+    font-size: 0.875rem;
+    color: #6b7280;
+    text-align: center;
+    margin-top: 1rem;
+  }
+
+  .form-actions {
+    display: flex;
+    gap: 1rem;
+    justify-content: flex-end;
+    padding-top: 1rem;
+    border-top: 1px solid #e5e7eb;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 2rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    border: none;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-decoration: none;
+  }
+
+  .btn-primary {
+    background-color: #2563eb;
+    color: white;
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    background-color: #1d4ed8;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+  }
+
+  .btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .btn-secondary {
+    background-color: white;
+    color: #374151;
+    border: 1px solid #d1d5db;
+  }
+
+  .btn-secondary:hover {
+    background-color: #f9fafb;
+    border-color: #9ca3af;
+  }
+
+  .btn-ghost {
+    background: none;
+    border: none;
+    padding: 0.5rem;
+    cursor: pointer;
+    color: #6b7280;
+    transition: color 0.2s;
+  }
+
+  .btn-ghost:hover {
+    color: #374151;
+  }
+
+  /* Format Requirements */
+  .format-requirements {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.5rem;
+    margin-top: 1.5rem;
+  }
+
+  .format-section {
+    padding: 1.5rem;
+    background: #f9fafb;
+    border-radius: 0.75rem;
+    border: 1px solid #e5e7eb;
+  }
+
+  .format-icon {
+    width: 56px;
+    height: 56px;
+    border-radius: 0.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 1rem;
+  }
+
+  .format-icon .material-symbols-outlined {
+    font-size: 32px;
+  }
+
+  .format-section h4 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #111827;
+    margin-bottom: 0.75rem;
+  }
+
+  .format-section ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .format-section li {
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: #374151;
+    padding-left: 1.25rem;
+    position: relative;
+  }
+
+  .format-section li::before {
+    content: '•';
+    position: absolute;
+    left: 0;
+    color: #2563eb;
+    font-weight: bold;
+  }
+
+  .hidden {
+    display: none !important;
+  }
+
+  @keyframes slideIn {
+    from {
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @media (max-width: 768px) {
+    .upload-page {
+      padding: 1rem;
+    }
+
+    .form-actions {
+      flex-direction: column-reverse;
+    }
+
+    .btn {
+      width: 100%;
+      justify-content: center;
+    }
+
+    .format-requirements {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

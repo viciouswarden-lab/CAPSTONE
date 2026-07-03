@@ -1,0 +1,91 @@
+---
+/**
+ * LoadingSpinner Component
+ * 
+ * Displays a progress indicator during long-running operations.
+ * Validates Requirement 20.6
+ * 
+ * Props:
+ * - size: 'sm' | 'md' | 'lg' - spinner size (default: 'md')
+ * - message: Optional loading message to display below spinner
+ * - fullScreen: Whether to show as full-screen overlay (default: false)
+ */
+
+interface Props {
+  size?: 'sm' | 'md' | 'lg';
+  message?: string;
+  fullScreen?: boolean;
+}
+
+const { size = 'md', message, fullScreen = false } = Astro.props;
+
+const sizeClasses = {
+  sm: 'w-6 h-6 border-2',
+  md: 'w-12 h-12 border-3',
+  lg: 'w-16 h-16 border-4'
+};
+
+const spinnerClass = sizeClasses[size];
+---
+
+{fullScreen ? (
+  <div class="loading-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="loading-content bg-white rounded-lg p-6 flex flex-col items-center gap-4">
+      <div class={`spinner ${spinnerClass}`} role="status" aria-label="Loading">
+        <span class="sr-only">Loading...</span>
+      </div>
+      {message && <p class="text-gray-700 text-center">{message}</p>}
+    </div>
+  </div>
+) : (
+  <div class="loading-inline flex flex-col items-center justify-center gap-3 py-4">
+    <div class={`spinner ${spinnerClass}`} role="status" aria-label="Loading">
+      <span class="sr-only">Loading...</span>
+    </div>
+    {message && <p class="text-gray-600 text-sm text-center">{message}</p>}
+  </div>
+)}
+
+<style>
+  .spinner {
+    border-style: solid;
+    border-color: #e5e7eb;
+    border-top-color: #3b82f6;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    0% {
+      transform: rotate(0deg);
+    }
+    100% {
+      transform: rotate(360deg);
+    }
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
+
+  .loading-overlay {
+    animation: fadeIn 0.2s ease-out;
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+</style>

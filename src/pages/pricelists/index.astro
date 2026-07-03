@@ -1,0 +1,433 @@
+---
+/**
+ * Pricelists Page - Firestore Connected
+ * 
+ * Shows list of uploaded pricelists with parsing results.
+ * Uses client-side rendering for real-time Firestore updates.
+ */
+
+import ModernLayout from '../../layouts/ModernLayout.astro';
+
+// Disable caching to ensure fresh data on every visit
+Astro.response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+---
+
+<ModernLayout title="Pricelists">
+  <!-- Page Header -->
+  <div class="page-header">
+    <div class="page-header-content">
+      <h1>Pricelists</h1>
+      <p>Upload and manage supplier pricelists with automatic parsing</p>
+    </div>
+    <div class="page-header-actions">
+      <button class="btn btn-secondary">
+        <span class="material-symbols-outlined">download</span>
+        Export
+      </button>
+      <a href="/pricelists/upload" class="btn btn-primary">
+        <span class="material-symbols-outlined">upload</span>
+        Upload Pricelist
+      </a>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="stats-grid" id="stats-grid">
+    <div class="stat-card">
+      <div class="stat-icon-wrapper" style="background: #dbeafe; color: #1e40af;">
+        <span class="material-symbols-outlined">receipt_long</span>
+      </div>
+      <div class="stat-content">
+        <h3>Pricelists</h3>
+        <div class="stat-value" id="total-pricelists">-</div>
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-icon-wrapper" style="background: #e9d5ff; color: #7c3aed;">
+        <span class="material-symbols-outlined">inventory_2</span>
+      </div>
+      <div class="stat-content">
+        <h3>Total Items</h3>
+        <div class="stat-value" id="total-items">-</div>
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-icon-wrapper" style="background: #d1fae5; color: #059669;">
+        <span class="material-symbols-outlined">new_releases</span>
+      </div>
+      <div class="stat-content">
+        <h3>Unique Suppliers</h3>
+        <div class="stat-value" id="unique-suppliers">-</div>
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-icon-wrapper" style="background: #fef3c7; color: #d97706;">
+        <span class="material-symbols-outlined">trending_up</span>
+      </div>
+      <div class="stat-content">
+        <h3>This Month</h3>
+        <div class="stat-value" id="this-month">-</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Search and Filters -->
+  <div class="card mb-6">
+    <div class="card-body">
+      <div class="search-bar">
+        <div class="search-input-wrapper">
+          <span class="material-symbols-outlined search-icon">search</span>
+          <input 
+            type="text" 
+            id="search-input"
+            class="search-input" 
+            placeholder="Search by supplier or filename..."
+          />
+        </div>
+        <select id="supplier-filter" class="form-select" style="width: auto;">
+          <option value="">All Suppliers</option>
+          <!-- Populated dynamically -->
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading State -->
+  <div id="loading-state" class="loading-container">
+    <div class="spinner"></div>
+    <p style="margin-top: 1rem; color: var(--text-secondary);">Loading pricelists from Firestore...</p>
+  </div>
+
+  <!-- Error Display -->
+  <div id="error-display" class="hidden">
+    <div class="alert alert-danger mb-6">
+      <span class="material-symbols-outlined">error</span>
+      <div>
+        <strong>Error Loading Pricelists:</strong> <span id="error-message"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pricelists Table -->
+  <div id="pricelists-content" class="card hidden">
+    <div class="card-header">
+      <h2>Uploaded Pricelists</h2>
+      <span class="badge badge-info" id="pricelist-count">0 pricelists</span>
+    </div>
+    <div id="empty-state" class="empty-state hidden">
+      <span class="material-symbols-outlined empty-state-icon">receipt_long</span>
+      <h3>No Pricelists Yet</h3>
+      <p>Get started by uploading your first supplier pricelist</p>
+      <a href="/pricelists/upload" class="btn btn-primary" style="margin-top: 1rem;">
+        <span class="material-symbols-outlined">upload</span>
+        Upload First Pricelist
+      </a>
+    </div>
+    <div id="table-container" class="table-container hidden">
+      <table>
+        <thead>
+          <tr>
+            <th>Pricelist</th>
+            <th>Supplier</th>
+            <th>Items</th>
+            <th>Uploaded</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="pricelists-tbody">
+          <!-- Populated by JavaScript -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- How It Works Section -->
+  <div class="card mt-6">
+    <div class="card-header">
+      <h2>How Pricelist Upload Works</h2>
+    </div>
+    <div class="card-body">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem;">
+        <div style="text-align: center; padding: 1rem;">
+          <div style="width: 64px; height: 64px; margin: 0 auto 1rem; border-radius: 50%; background: #dbeafe; display: flex; align-items: center; justify-content: center;">
+            <span class="material-symbols-outlined" style="font-size: 32px; color: #1e40af;">upload</span>
+          </div>
+          <h3 style="font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem;">1. Upload CSV</h3>
+          <p style="font-size: 0.875rem; color: var(--text-secondary);">Upload supplier pricelist in CSV format with product details</p>
+        </div>
+
+        <div style="text-align: center; padding: 1rem;">
+          <div style="width: 64px; height: 64px; margin: 0 auto 1rem; border-radius: 50%; background: #e9d5ff; display: flex; align-items: center; justify-content: center;">
+            <span class="material-symbols-outlined" style="font-size: 32px; color: #7c3aed;">memory</span>
+          </div>
+          <h3 style="font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem;">2. Auto-Parse</h3>
+          <p style="font-size: 0.875rem; color: var(--text-secondary);">System automatically parses and extracts product information</p>
+        </div>
+
+        <div style="text-align: center; padding: 1rem;">
+          <div style="width: 64px; height: 64px; margin: 0 auto 1rem; border-radius: 50%; background: #d1fae5; display: flex; align-items: center; justify-content: center;">
+            <span class="material-symbols-outlined" style="font-size: 32px; color: #059669;">psychology</span>
+          </div>
+          <h3 style="font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem;">3. AI Matching</h3>
+          <p style="font-size: 0.875rem; color: var(--text-secondary);">Products matched using fuzzy and semantic algorithms</p>
+        </div>
+
+        <div style="text-align: center; padding: 1rem;">
+          <div style="width: 64px; height: 64px; margin: 0 auto 1rem; border-radius: 50%; background: #fef3c7; display: flex; align-items: center; justify-content: center;">
+            <span class="material-symbols-outlined" style="font-size: 32px; color: #d97706;">save</span>
+          </div>
+          <h3 style="font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem;">4. Store & Track</h3>
+          <p style="font-size: 0.875rem; color: var(--text-secondary);">Prices stored with full audit trail and change history</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Firestore Status -->
+  <div id="firestore-status" class="alert alert-success mt-6 hidden">
+    <span class="material-symbols-outlined">check_circle</span>
+    <div>
+      <strong>Connected to Firestore:</strong> <span id="status-message"></span>
+    </div>
+  </div>
+</ModernLayout>
+
+<script>
+  import { collection, getDocs, query, orderBy, limit as firestoreLimit, Timestamp } from 'firebase/firestore';
+  import { db } from '../../services/firebase';
+
+  // Elements
+  const loadingState = document.getElementById('loading-state')!;
+  const errorDisplay = document.getElementById('error-display')!;
+  const errorMessage = document.getElementById('error-message')!;
+  const pricelistsContent = document.getElementById('pricelists-content')!;
+  const emptyState = document.getElementById('empty-state')!;
+  const tableContainer = document.getElementById('table-container')!;
+  const pricelistsTbody = document.getElementById('pricelists-tbody')!;
+  const pricelistCount = document.getElementById('pricelist-count')!;
+  const firestoreStatus = document.getElementById('firestore-status')!;
+  const statusMessage = document.getElementById('status-message')!;
+  const searchInput = document.getElementById('search-input') as HTMLInputElement;
+  const supplierFilter = document.getElementById('supplier-filter') as HTMLSelectElement;
+
+  // Stats elements
+  const totalPricelistsEl = document.getElementById('total-pricelists')!;
+  const totalItemsEl = document.getElementById('total-items')!;
+  const uniqueSuppliersEl = document.getElementById('unique-suppliers')!;
+  const thisMonthEl = document.getElementById('this-month')!;
+
+  let allPricelists: any[] = [];
+  let filteredPricelists: any[] = [];
+
+  // Format date helper
+  const formatDate = (date: Date) => {
+    return new Intl.DateTimeFormat('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(date);
+  };
+
+  // Update stats
+  const updateStats = (pricelists: any[]) => {
+    totalPricelistsEl.textContent = pricelists.length.toString();
+    
+    const totalItems = pricelists.reduce((sum, p) => sum + (p.itemCount || 0), 0);
+    totalItemsEl.textContent = totalItems.toString();
+    
+    const uniqueSuppliers = new Set(pricelists.map(p => p.supplierId));
+    uniqueSuppliersEl.textContent = uniqueSuppliers.size.toString();
+    
+    const thisMonth = pricelists.filter(p => {
+      const uploadDate = p.uploadDate.toDate();
+      const now = new Date();
+      return uploadDate.getMonth() === now.getMonth() && uploadDate.getFullYear() === now.getFullYear();
+    }).length;
+    thisMonthEl.textContent = thisMonth.toString();
+  };
+
+  // Populate supplier filter
+  const populateSupplierFilter = (pricelists: any[]) => {
+    const suppliers = new Set<string>();
+    pricelists.forEach(p => {
+      if (p.supplierName) suppliers.add(p.supplierName);
+    });
+    
+    suppliers.forEach(supplier => {
+      const option = document.createElement('option');
+      option.value = supplier;
+      option.textContent = supplier;
+      supplierFilter.appendChild(option);
+    });
+  };
+
+  // Render pricelists table
+  const renderPricelists = (pricelists: any[]) => {
+    pricelistsTbody.innerHTML = '';
+    
+    if (pricelists.length === 0) {
+      emptyState.classList.remove('hidden');
+      tableContainer.classList.add('hidden');
+      return;
+    }
+
+    emptyState.classList.add('hidden');
+    tableContainer.classList.remove('hidden');
+
+    pricelists.forEach(pricelist => {
+      const row = document.createElement('tr');
+      row.innerHTML = `
+        <td>
+          <div class="flex items-center gap-2">
+            <span class="material-symbols-outlined" style="color: var(--primary);">description</span>
+            <div>
+              <div class="font-semibold">${pricelist.fileName || 'Unnamed'}</div>
+              <div class="text-xs text-muted">${pricelist.id}</div>
+            </div>
+          </div>
+        </td>
+        <td class="text-sm">${pricelist.supplierName || pricelist.supplierId || '-'}</td>
+        <td>
+          <span class="font-semibold">${pricelist.itemCount || 0}</span>
+        </td>
+        <td class="text-sm text-muted">${formatDate(pricelist.uploadDate.toDate())}</td>
+        <td>
+          <span class="badge badge-success">Processed</span>
+        </td>
+        <td>
+          <div class="flex gap-2">
+            <a href="/pricelists/review?id=${pricelist.id}" class="btn-ghost" style="padding: 0.5rem;" title="View details">
+              <span class="material-symbols-outlined" style="font-size: 20px;">visibility</span>
+            </a>
+          </div>
+        </td>
+      `;
+      pricelistsTbody.appendChild(row);
+    });
+
+    pricelistCount.textContent = `${pricelists.length} pricelist${pricelists.length !== 1 ? 's' : ''}`;
+
+    // Add event listeners to download buttons
+    document.querySelectorAll('.download-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const target = e.currentTarget as HTMLElement;
+        const pricelistId = target.getAttribute('data-id')!;
+        const fileName = target.getAttribute('data-filename')!;
+        const fileUrl = target.getAttribute('data-url')!;
+        downloadPricelist(pricelistId, fileName, fileUrl);
+      });
+    });
+  };
+
+  // Filter pricelists
+  const filterPricelists = () => {
+    const searchText = searchInput.value.toLowerCase().trim();
+    const supplier = supplierFilter.value;
+
+    filteredPricelists = allPricelists.filter(pricelist => {
+      // Supplier filter
+      if (supplier && pricelist.supplierName !== supplier) return false;
+
+      // Search filter
+      if (searchText) {
+        const nameMatch = (pricelist.fileName || '').toLowerCase().includes(searchText);
+        const supplierMatch = (pricelist.supplierName || pricelist.supplierId || '').toLowerCase().includes(searchText);
+        return nameMatch || supplierMatch;
+      }
+
+      return true;
+    });
+
+    renderPricelists(filteredPricelists);
+  };
+
+  // Load pricelists from Firestore
+  const loadPricelists = async () => {
+    try {
+      loadingState.classList.remove('hidden');
+      errorDisplay.classList.add('hidden');
+      pricelistsContent.classList.add('hidden');
+      firestoreStatus.classList.add('hidden');
+
+      // Fetch pricelists from Firestore
+      const pricelistsRef = collection(db, 'pricelists');
+      const q = query(pricelistsRef, orderBy('uploadDate', 'desc'), firestoreLimit(100));
+      const querySnapshot = await getDocs(q);
+
+      allPricelists = [];
+      querySnapshot.forEach((doc) => {
+        allPricelists.push({
+          id: doc.id,
+          ...doc.data()
+        });
+      });
+
+      filteredPricelists = allPricelists;
+
+      // Show content
+      loadingState.classList.add('hidden');
+      pricelistsContent.classList.remove('hidden');
+      firestoreStatus.classList.remove('hidden');
+
+      // Update stats
+      updateStats(allPricelists);
+
+      // Populate supplier filter
+      populateSupplierFilter(allPricelists);
+
+      // Render pricelists
+      renderPricelists(filteredPricelists);
+
+      // Update status message
+      statusMessage.textContent = `Displaying ${allPricelists.length} pricelist(s) from your database. Upload new pricelists to see them here.`;
+
+    } catch (err) {
+      loadingState.classList.add('hidden');
+      errorDisplay.classList.remove('hidden');
+      
+      const errMsg = err instanceof Error ? err.message : 'Failed to load pricelists';
+      errorMessage.textContent = errMsg;
+      
+      console.error('Error loading pricelists:', err);
+    }
+  };
+
+  // Event listeners
+  searchInput.addEventListener('input', filterPricelists);
+  supplierFilter.addEventListener('change', filterPricelists);
+
+  // Load pricelists on page load
+  loadPricelists();
+</script>
+
+<style>
+  .loading-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 2rem;
+  }
+
+  .spinner {
+    width: 48px;
+    height: 48px;
+    border: 4px solid #e5e7eb;
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .hidden {
+    display: none !important;
+  }
+</style>

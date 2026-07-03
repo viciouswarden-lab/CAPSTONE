@@ -1,0 +1,627 @@
+---
+/**
+ * Product Detail/Edit Page
+ * 
+ * Displays product information including supplier mappings and allows editing
+ * with validation. Enforces unique SKU constraint and supports product deactivation.
+ * 
+ * Requirements: 7.1, 7.2, 7.3, 7.4
+ * Task: 26.2
+ */
+
+import MainLayout from '../../layouts/MainLayout.astro';
+import ErrorMessage from '../../components/ErrorMessage.astro';
+import LoadingSpinner from '../../components/LoadingSpinner.astro';
+import Modal from '../../components/Modal.astro';
+import Tooltip from '../../components/Tooltip.astro';
+import { productService } from '../../services/products/ProductService';
+import type { Product } from '../../types/models';
+
+// Get product SKU from URL
+const { sku } = Astro.params;
+
+if (!sku) {
+  return Astro.redirect('/products');
+}
+
+// Fetch product data
+let product: Product | null = null;
+let error: string | null = null;
+let loading = true;
+
+try {
+  product = await productService.getProduct(sku);
+  loading = false;
+  
+  if (!product) {
+    error = 'Product not found';
+  }
+} catch (e) {
+  loading = false;
+  error = e instanceof Error ? e.message : 'Failed to load product';
+}
+
+// Format dates for display
+const formatDate = (date: Date): string => {
+  return new Intl.DateTimeFormat('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(date);
+};
+
+// Format currency
+const formatCurrency = (amount: number): string => {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD'
+  }).format(amount);
+};
+---
+
+<MainLayout title={product ? `Product: ${product.sku}` : 'Product Details'} requireAuth={true} requiredRole="Analyst">
+  <div class="product-detail-page">
+    <!-- Page Header -->
+    <div class="page-header mb-6">
+      <div class="flex items-center justify-between">
+        <div>
+          <a href="/products" class="back-link text-blue-600 hover:text-blue-800 flex items-center gap-1 mb-2">
+            <span>←</span>
+            <span>Back to Products</span>
+          </a>
+          <h1 class="text-3xl font-bold">
+            {product ? `${product.sku} - ${product.description}` : 'Product Details'}
+          </h1>
+          {product && (
+            <span class={`status-badge inline-block mt-2 px-3 py-1 rounded-full text-sm font-medium ${product.isActive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+              {product.isActive ? 'Active' : 'Inactive'}
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+
+    <!-- Error Display -->
+    {error && (
+      <ErrorMessage message={error} type="error" />
+    )}
+
+    <!-- Loading State -->
+    {loading && (
+      <LoadingSpinner message="Loading product details..." />
+    )}
+
+    <!-- Product Details & Edit Form -->
+    {product && !loading && (
+      <div class="product-content grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Main Content - Edit Form -->
+        <div class="lg:col-span-2 space-y-6">
+          <!-- Basic Information Card -->
+          <div class="card bg-white rounded-lg shadow p-6">
+            <div class="flex items-center justify-between mb-6">
+              <h2 class="text-xl font-semibold">Product Information</h2>
+              <div class="action-buttons flex gap-2">
+                <button
+                  type="button"
+                  id="edit-btn"
+                  class="btn-edit px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                >
+                  Edit
+                </button>
+                {product.isActive ? (
+                  <button
+                    type="button"
+                    id="deactivate-btn"
+                    class="btn-deactivate px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
+                  >
+                    Deactivate
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    id="reactivate-btn"
+                    class="btn-reactivate px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
+                  >
+                    Reactivate
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <!-- View Mode -->
+            <div id="view-mode">
+              <dl class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="field">
+                  <dt class="text-sm font-medium text-gray-500">SKU</dt>
+                  <dd class="mt-1 text-base text-gray-900 font-mono">{product.sku}</dd>
+                </div>
+
+                <div class="field">
+                  <dt class="text-sm font-medium text-gray-500">Category</dt>
+                  <dd class="mt-1 text-base text-gray-900">{product.category}</dd>
+                </div>
+
+                <div class="field md:col-span-2">
+                  <dt class="text-sm font-medium text-gray-500">Description</dt>
+                  <dd class="mt-1 text-base text-gray-900">{product.description}</dd>
+                </div>
+
+                <div class="field">
+                  <dt class="text-sm font-medium text-gray-500">Unit of Measure</dt>
+                  <dd class="mt-1 text-base text-gray-900">{product.unitOfMeasure}</dd>
+                </div>
+
+                <div class="field">
+                  <dt class="text-sm font-medium text-gray-500">Reorder Point</dt>
+                  <dd class="mt-1 text-base text-gray-900">{product.reorderPoint}</dd>
+                </div>
+              </dl>
+            </div>
+
+            <!-- Edit Mode (Hidden by default) -->
+            <form id="edit-form" class="hidden" data-product-sku={product.sku}>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="form-group md:col-span-2">
+                  <label for="sku" class="block text-sm font-medium text-gray-700 mb-1">
+                    SKU <span class="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    id="sku"
+                    name="sku"
+                    value={product.sku}
+                    disabled
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100 cursor-not-allowed font-mono"
+                    title="SKU cannot be changed"
+                  />
+                  <p class="text-xs text-gray-500 mt-1">SKU cannot be changed after creation</p>
+                </div>
+
+                <div class="form-group md:col-span-2">
+                  <label for="description" class="block text-sm font-medium text-gray-700 mb-1">
+                    Description <span class="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    id="description"
+                    name="description"
+                    value={product.description}
+                    required
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <div id="description-error" class="field-error hidden"></div>
+                </div>
+
+                <div class="form-group">
+                  <label for="category" class="block text-sm font-medium text-gray-700 mb-1">
+                    Category <span class="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    id="category"
+                    name="category"
+                    value={product.category}
+                    required
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <div id="category-error" class="field-error hidden"></div>
+                </div>
+
+                <div class="form-group">
+                  <label for="unitOfMeasure" class="block text-sm font-medium text-gray-700 mb-1">
+                    Unit of Measure <span class="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    id="unitOfMeasure"
+                    name="unitOfMeasure"
+                    value={product.unitOfMeasure}
+                    required
+                    placeholder="e.g., EA, BOX, LB"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <div id="unitOfMeasure-error" class="field-error hidden"></div>
+                </div>
+
+                <div class="form-group">
+                  <label for="reorderPoint" class="block text-sm font-medium text-gray-700 mb-1 inline-flex items-center gap-2">
+                    Reorder Point <span class="text-red-500">*</span>
+                    <Tooltip content="The inventory level at which a reorder should be triggered. When stock falls below this point, a low stock alert will be generated. Set this based on lead time and average daily sales." position="right" maxWidth={300}>
+                      <span class="inline-flex items-center justify-center w-4 h-4 text-xs text-blue-600 border border-blue-600 rounded-full cursor-help">?</span>
+                    </Tooltip>
+                  </label>
+                  <input
+                    type="number"
+                    id="reorderPoint"
+                    name="reorderPoint"
+                    value={product.reorderPoint}
+                    required
+                    min="0"
+                    step="1"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <div id="reorderPoint-error" class="field-error hidden"></div>
+                </div>
+              </div>
+
+              <div id="form-error" class="mt-4 hidden"></div>
+
+              <div class="form-actions mt-6 flex gap-3 justify-end">
+                <button
+                  type="button"
+                  id="cancel-btn"
+                  class="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  id="save-btn"
+                  class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <!-- Supplier Mappings Card -->
+          <div class="card bg-white rounded-lg shadow p-6">
+            <h2 class="text-xl font-semibold mb-4">Supplier Mappings</h2>
+            
+            {product.supplierMappings.length === 0 ? (
+              <p class="text-gray-500 text-center py-6">No supplier mappings configured</p>
+            ) : (
+              <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                  <thead class="bg-gray-50">
+                    <tr>
+                      <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Supplier ID
+                      </th>
+                      <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Supplier Code
+                      </th>
+                      <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Last Cost
+                      </th>
+                      <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Last Cost Date
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody class="bg-white divide-y divide-gray-200">
+                    {product.supplierMappings.map((mapping) => (
+                      <tr class="hover:bg-gray-50">
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          <a href={`/suppliers/${mapping.supplierId}`} class="text-blue-600 hover:text-blue-800 hover:underline">
+                            {mapping.supplierId}
+                          </a>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-mono">
+                          {mapping.supplierCode}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {formatCurrency(mapping.lastCost)}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {formatDate(mapping.lastCostDate)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <!-- Sidebar - Metadata -->
+        <div class="lg:col-span-1">
+          <div class="card bg-white rounded-lg shadow p-6">
+            <h3 class="text-lg font-semibold mb-4">Metadata</h3>
+            <dl class="space-y-3">
+              <div>
+                <dt class="text-sm font-medium text-gray-500">Created</dt>
+                <dd class="mt-1 text-sm text-gray-900">{formatDate(product.createdAt)}</dd>
+              </div>
+              <div>
+                <dt class="text-sm font-medium text-gray-500">Last Updated</dt>
+                <dd class="mt-1 text-sm text-gray-900">{formatDate(product.updatedAt)}</dd>
+              </div>
+              <div>
+                <dt class="text-sm font-medium text-gray-500">Status</dt>
+                <dd class="mt-1">
+                  <span class={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${product.isActive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                    {product.isActive ? 'Active' : 'Inactive'}
+                  </span>
+                </dd>
+              </div>
+              <div>
+                <dt class="text-sm font-medium text-gray-500">Supplier Count</dt>
+                <dd class="mt-1 text-sm text-gray-900">{product.supplierMappings.length}</dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+      </div>
+    )}
+
+    <!-- Deactivation/Reactivation Confirmation Modal -->
+    <Modal 
+      title={product?.isActive ? "Deactivate Product" : "Reactivate Product"}
+      type={product?.isActive ? "danger" : "success"}
+      closable={true}
+    >
+      <p class="text-gray-700">
+        {product?.isActive 
+          ? `Are you sure you want to deactivate ${product?.sku}? This product will be marked as inactive but historical transaction data will be preserved.`
+          : `Are you sure you want to reactivate ${product?.sku}? This product will be marked as active again.`
+        }
+      </p>
+      <div slot="footer">
+        <button
+          type="button"
+          class="btn-cancel px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          id="confirm-status-change"
+          class={`px-4 py-2 text-sm font-medium text-white rounded-md transition-colors ${
+            product?.isActive
+              ? 'bg-red-600 hover:bg-red-700'
+              : 'bg-green-600 hover:bg-green-700'
+          }`}
+        >
+          {product?.isActive ? 'Deactivate' : 'Reactivate'}
+        </button>
+      </div>
+    </Modal>
+  </div>
+</MainLayout>
+
+<style>
+  .back-link {
+    font-size: 0.875rem;
+    transition: color 0.2s;
+  }
+
+  .status-badge {
+    font-weight: 500;
+  }
+
+  .card {
+    transition: box-shadow 0.2s;
+  }
+
+  .card:hover {
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  }
+
+  .field-error {
+    color: #dc2626;
+    font-size: 0.875rem;
+    margin-top: 0.25rem;
+  }
+
+  .field-error:not(.hidden) {
+    display: block;
+  }
+
+  @media (max-width: 768px) {
+    .action-buttons {
+      flex-direction: column;
+      width: 100%;
+    }
+
+    .action-buttons button {
+      width: 100%;
+    }
+  }
+</style>
+
+<script>
+  /**
+   * Client-side functionality for product detail/edit page
+   * Handles form validation, submission, and status changes
+   */
+
+  interface ValidationResult {
+    valid: boolean;
+    errors: Record<string, string>;
+  }
+
+  // DOM elements
+  const editBtn = document.getElementById('edit-btn');
+  const cancelBtn = document.getElementById('cancel-btn');
+  const saveBtn = document.getElementById('save-btn');
+  const deactivateBtn = document.getElementById('deactivate-btn');
+  const reactivateBtn = document.getElementById('reactivate-btn');
+  const confirmStatusChangeBtn = document.getElementById('confirm-status-change');
+  
+  const viewMode = document.getElementById('view-mode');
+  const editForm = document.getElementById('edit-form') as HTMLFormElement;
+  const formError = document.getElementById('form-error');
+  
+  const statusModal = document.querySelector('.modal-backdrop') as any;
+
+  // Toggle between view and edit modes
+  editBtn?.addEventListener('click', () => {
+    viewMode?.classList.add('hidden');
+    editForm?.classList.remove('hidden');
+    editBtn.classList.add('hidden');
+    deactivateBtn?.classList.add('hidden');
+    reactivateBtn?.classList.add('hidden');
+  });
+
+  cancelBtn?.addEventListener('click', () => {
+    viewMode?.classList.remove('hidden');
+    editForm?.classList.add('hidden');
+    editBtn?.classList.remove('hidden');
+    deactivateBtn?.classList.remove('hidden');
+    reactivateBtn?.classList.remove('hidden');
+    clearErrors();
+  });
+
+  // Form validation
+  function validateForm(formData: FormData): ValidationResult {
+    const errors: Record<string, string> = {};
+
+    // Required field validation
+    const description = formData.get('description')?.toString().trim();
+    const category = formData.get('category')?.toString().trim();
+    const unitOfMeasure = formData.get('unitOfMeasure')?.toString().trim();
+    const reorderPoint = formData.get('reorderPoint')?.toString().trim();
+
+    if (!description) {
+      errors.description = 'Description is required';
+    }
+
+    if (!category) {
+      errors.category = 'Category is required';
+    }
+
+    if (!unitOfMeasure) {
+      errors.unitOfMeasure = 'Unit of measure is required';
+    }
+
+    if (!reorderPoint) {
+      errors.reorderPoint = 'Reorder point is required';
+    } else {
+      const reorderPointNum = parseInt(reorderPoint, 10);
+      if (isNaN(reorderPointNum) || reorderPointNum < 0) {
+        errors.reorderPoint = 'Reorder point must be a non-negative number';
+      }
+    }
+
+    return {
+      valid: Object.keys(errors).length === 0,
+      errors
+    };
+  }
+
+  // Display validation errors
+  function displayErrors(errors: Record<string, string>) {
+    clearErrors();
+
+    Object.entries(errors).forEach(([field, message]) => {
+      const errorDiv = document.getElementById(`${field}-error`);
+      if (errorDiv) {
+        errorDiv.textContent = message;
+        errorDiv.classList.remove('hidden');
+      }
+    });
+  }
+
+  // Clear all validation errors
+  function clearErrors() {
+    const errorDivs = document.querySelectorAll('.field-error');
+    errorDivs.forEach(div => {
+      div.textContent = '';
+      div.classList.add('hidden');
+    });
+    
+    if (formError) {
+      formError.textContent = '';
+      formError.classList.add('hidden');
+    }
+  }
+
+  // Handle form submission
+  editForm?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    clearErrors();
+
+    const formData = new FormData(editForm);
+    const validation = validateForm(formData);
+
+    if (!validation.valid) {
+      displayErrors(validation.errors);
+      return;
+    }
+
+    // Disable save button during submission
+    if (saveBtn) {
+      saveBtn.setAttribute('disabled', 'true');
+      saveBtn.textContent = 'Saving...';
+    }
+
+    try {
+      const productSku = editForm.dataset.productSku;
+      
+      // Prepare update payload
+      const updates = {
+        description: formData.get('description')?.toString().trim(),
+        category: formData.get('category')?.toString().trim(),
+        unitOfMeasure: formData.get('unitOfMeasure')?.toString().trim(),
+        reorderPoint: parseInt(formData.get('reorderPoint')?.toString() || '0', 10),
+      };
+
+      // Make API call
+      const response = await fetch(`/api/products/${productSku}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updates),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Failed to update product' }));
+        throw new Error(errorData.error || 'Failed to update product');
+      }
+
+      // Reload page to show updated data
+      window.location.reload();
+    } catch (error) {
+      if (formError) {
+        formError.textContent = error instanceof Error ? error.message : 'Failed to update product';
+        formError.classList.remove('hidden');
+        formError.classList.add('text-red-600', 'text-sm');
+      }
+    } finally {
+      if (saveBtn) {
+        saveBtn.removeAttribute('disabled');
+        saveBtn.textContent = 'Save Changes';
+      }
+    }
+  });
+
+  // Show deactivation modal
+  deactivateBtn?.addEventListener('click', () => {
+    statusModal?.modalController?.showModal();
+  });
+
+  // Show reactivation modal
+  reactivateBtn?.addEventListener('click', () => {
+    statusModal?.modalController?.showModal();
+  });
+
+  // Handle status change confirmation
+  confirmStatusChangeBtn?.addEventListener('click', async () => {
+    try {
+      const productSku = editForm?.dataset.productSku;
+      const isCurrentlyActive = deactivateBtn !== null;
+      const action = isCurrentlyActive ? 'deactivate' : 'reactivate';
+
+      // Make API call
+      const response = await fetch(`/api/products/${productSku}/${action}`, {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: `Failed to ${action} product` }));
+        throw new Error(errorData.error || `Failed to ${action} product`);
+      }
+
+      // Reload page to show updated status
+      window.location.reload();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Operation failed');
+    }
+  });
+</script>

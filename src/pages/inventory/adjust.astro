@@ -1,0 +1,346 @@
+---
+/**
+ * Inventory Adjustment Page - Modern Client-Side
+ * 
+ * Allows staff to record inventory adjustments.
+ * Uses client-side rendering with Firestore.
+ */
+
+import ModernLayout from '../../layouts/ModernLayout.astro';
+
+Astro.response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+---
+
+<ModernLayout title="Adjust Inventory">
+  <div class="adjust-page">
+    <!-- Page Header -->
+    <div class="page-header">
+      <div>
+        <h1>
+          <span class="material-symbols-outlined" style="vertical-align: middle; margin-right: 0.5rem;">tune</span>
+          Adjust Inventory
+        </h1>
+        <p class="subtitle">Record physical count adjustments</p>
+      </div>
+      <a href="/inventory" class="btn btn-secondary">
+        <span class="material-symbols-outlined">arrow_back</span>
+        Back
+      </a>
+    </div>
+
+    <!-- Loading State -->
+    <div id="loading-state" class="loading-container">
+      <div class="spinner"></div>
+      <p style="margin-top: 1rem; color: var(--text-secondary);">Loading products...</p>
+    </div>
+
+    <!-- Error Display -->
+    <div id="error-display" class="hidden">
+      <div class="alert alert-error">
+        <span class="material-symbols-outlined">error</span>
+        <div>
+          <strong>Error:</strong> <span id="error-message"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Adjustment Form -->
+    <div id="form-container" class="card hidden">
+      <form id="adjustmentForm">
+        <!-- Product Section -->
+        <div class="form-section">
+          <h2>Product Information</h2>
+          
+          <div class="form-group">
+            <label for="sku">Product <span class="required">*</span></label>
+            <select id="sku" required class="form-select">
+              <option value="">Select a product...</option>
+            </select>
+            <small>Choose the product to adjust</small>
+          </div>
+
+          <div id="current-quantity-card" class="info-card hidden">
+            <div class="info-card-header">
+              <span class="material-symbols-outlined">info</span>
+              Current Status
+            </div>
+            <div class="info-card-body">
+              <div class="info-item">
+                <span class="info-label">Current Quantity</span>
+                <span class="info-value" id="current-quantity">0</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Location</span>
+                <span class="info-value" id="current-location">-</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="locationId">Location <span class="required">*</span></label>
+            <select id="locationId" required class="form-select">
+              <option value="">Select location...</option>
+              <option value="warehouse">Warehouse</option>
+              <option value="store">Store</option>
+              <option value="default">Default</option>
+            </select>
+            <small>Select the inventory location</small>
+          </div>
+        </div>
+
+        <!-- Adjustment Details -->
+        <div class="form-section">
+          <h2>Adjustment Details</h2>
+          
+          <div class="form-group">
+            <label for="quantityChange">Quantity Adjustment <span class="required">*</span></label>
+            <input type="number" id="quantityChange" required step="1" 
+                   placeholder="e.g., +10 or -5" class="form-input" />
+            <small>Positive to increase, negative to decrease</small>
+          </div>
+
+
+          <div class="form-group">
+            <label for="reason">Reason <span class="required">*</span></label>
+            <select id="reason" required class="form-select">
+              <option value="">Select reason...</option>
+              <option value="physical_count">Physical Count</option>
+              <option value="receiving">Receiving</option>
+              <option value="return">Return</option>
+              <option value="damage">Damage/Loss</option>
+              <option value="other">Other</option>
+            </select>
+            <small>Why are you making this adjustment?</small>
+          </div>
+
+          <div class="form-group">
+            <label for="notes">Notes</label>
+            <textarea id="notes" rows="3" placeholder="Additional details..." class="form-input"></textarea>
+            <small>Optional information</small>
+          </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="form-actions">
+          <button type="button" class="btn btn-secondary" id="cancel-btn">
+            <span class="material-symbols-outlined">close</span>
+            Cancel
+          </button>
+          <button type="submit" class="btn btn-primary" id="submit-btn">
+            <span class="material-symbols-outlined">save</span>
+            Submit
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Success Modal -->
+    <div id="success-modal" class="modal hidden">
+      <div class="modal-overlay"></div>
+      <div class="modal-content">
+        <div class="modal-header success">
+          <span class="material-symbols-outlined">check_circle</span>
+          <h2>Success!</h2>
+        </div>
+        <div class="modal-body">
+          <div class="success-details">
+            <div class="detail-row"><span>Product:</span><span id="s-sku"></span></div>
+            <div class="detail-row"><span>Location:</span><span id="s-loc"></span></div>
+            <div class="detail-row"><span>Previous:</span><span id="s-before"></span></div>
+            <div class="detail-row"><span>Change:</span><span id="s-change"></span></div>
+            <div class="detail-row total"><span>New:</span><span id="s-after"></span></div>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" id="another-btn">Adjust Another</button>
+          <button class="btn btn-primary" id="view-btn">View Inventory</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</ModernLayout>
+
+
+<script>
+  import { db } from '../../services/firebase';
+  import { collection, getDocs, query, orderBy, where, doc, getDoc, setDoc, Timestamp, runTransaction } from 'firebase/firestore';
+
+  const loadingState = document.getElementById('loading-state')!;
+  const errorDisplay = document.getElementById('error-display')!;
+  const errorMessage = document.getElementById('error-message')!;
+  const formContainer = document.getElementById('form-container')!;
+  const form = document.getElementById('adjustmentForm') as HTMLFormElement;
+  const skuSelect = document.getElementById('sku') as HTMLSelectElement;
+  const locationSelect = document.getElementById('locationId') as HTMLSelectElement;
+  const quantityInput = document.getElementById('quantityChange') as HTMLInputElement;
+  const currentCard = document.getElementById('current-quantity-card')!;
+  const currentQty = document.getElementById('current-quantity')!;
+  const currentLoc = document.getElementById('current-location')!;
+  const submitBtn = document.getElementById('submit-btn')!;
+  const successModal = document.getElementById('success-modal')!;
+
+  let allProducts: any[] = [];
+
+  const loadProducts = async () => {
+    try {
+      loadingState.classList.remove('hidden');
+      const ref = collection(db!, 'products');
+      const q = query(ref, where('isActive', '==', true), orderBy('sku', 'asc'));
+      const snap = await getDocs(q);
+      allProducts = snap.docs.map(d => ({id: d.id, ...d.data()}));
+      
+      skuSelect.innerHTML = '<option value="">Select a product...</option>';
+      allProducts.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.sku;
+        opt.textContent = `${p.sku} - ${p.description}`;
+        skuSelect.appendChild(opt);
+      });
+      
+      loadingState.classList.add('hidden');
+      formContainer.classList.remove('hidden');
+    } catch (err) {
+      loadingState.classList.add('hidden');
+      errorDisplay.classList.remove('hidden');
+      errorMessage.textContent = err instanceof Error ? err.message : 'Failed to load';
+    }
+  };
+
+  const updateCurrent = async () => {
+    const sku = skuSelect.value;
+    const loc = locationSelect.value;
+    if (!sku || !loc) { currentCard.classList.add('hidden'); return; }
+    
+    try {
+      const invRef = doc(db!, 'inventory', `${sku}_${loc}`);
+      const snap = await getDoc(invRef);
+      currentQty.textContent = snap.exists() ? snap.data().quantityOnHand : '0';
+      currentLoc.textContent = loc;
+      currentCard.classList.remove('hidden');
+    } catch { currentCard.classList.add('hidden'); }
+  };
+
+
+  const handleSubmit = async (e: Event) => {
+    e.preventDefault();
+    const sku = skuSelect.value;
+    const loc = locationSelect.value;
+    const change = parseInt(quantityInput.value);
+    const reason = (document.getElementById('reason') as HTMLSelectElement).value;
+    const notes = (document.getElementById('notes') as HTMLTextAreaElement).value;
+    
+    if (!sku || !loc || isNaN(change)) { alert('Fill all fields'); return; }
+    
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<span class="material-symbols-outlined">refresh</span> Processing...';
+    
+    try {
+      await runTransaction(db!, async (txn) => {
+        const invId = `${sku}_${loc}`;
+        const invRef = doc(db!, 'inventory', invId);
+        const invSnap = await txn.get(invRef);
+        
+        const before = invSnap.exists() ? invSnap.data().quantityOnHand : 0;
+        const after = before + change;
+        if (after < 0) throw new Error('Cannot go negative');
+        
+        const now = Timestamp.now();
+        txn.set(invRef, {
+          inventoryId: invId, sku, locationId: loc,
+          quantityOnHand: after, lastUpdated: now,
+          lastTransactionId: 'adj-' + Date.now()
+        });
+        
+        const trxRef = doc(collection(db!, 'inventory_transactions'));
+        txn.set(trxRef, {
+          transactionId: trxRef.id, sku, locationId: loc,
+          transactionType: 'adjustment', quantityChange: change,
+          quantityBefore: before, quantityAfter: after,
+          timestamp: now, userId: 'user',
+          ...(notes && { notes })
+        });
+        
+        showSuccess({sku, locationId: loc, quantityBefore: before, quantityChange: change, quantityAfter: after});
+        form.reset();
+        currentCard.classList.add('hidden');
+      });
+    } catch (err) {
+      alert('Error: ' + (err instanceof Error ? err.message : 'Failed'));
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = '<span class="material-symbols-outlined">save</span> Submit';
+    }
+  };
+
+  const showSuccess = (data: any) => {
+    document.getElementById('s-sku')!.textContent = data.sku;
+    document.getElementById('s-loc')!.textContent = data.locationId;
+    document.getElementById('s-before')!.textContent = data.quantityBefore;
+    document.getElementById('s-after')!.textContent = data.quantityAfter;
+    const chg = data.quantityChange;
+    const chgEl = document.getElementById('s-change')!;
+    chgEl.textContent = (chg >= 0 ? '+' : '') + chg;
+    chgEl.style.color = chg >= 0 ? '#10b981' : '#ef4444';
+    successModal.classList.remove('hidden');
+  };
+
+  skuSelect.addEventListener('change', updateCurrent);
+  locationSelect.addEventListener('change', updateCurrent);
+  form.addEventListener('submit', handleSubmit);
+  document.getElementById('cancel-btn')!.addEventListener('click', () => { if(confirm('Cancel?')) location.href='/inventory'; });
+  document.getElementById('another-btn')!.addEventListener('click', () => successModal.classList.add('hidden'));
+  document.getElementById('view-btn')!.addEventListener('click', () => location.href='/inventory');
+  successModal.addEventListener('click', (e) => { if(e.target === successModal || (e.target as HTMLElement).classList.contains('modal-overlay')) successModal.classList.add('hidden'); });
+
+  loadProducts();
+</script>
+
+
+<style>
+  .adjust-page { max-width: 900px; margin: 0 auto; padding: 0 1.5rem; }
+  .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; padding-bottom: 1.5rem; border-bottom: 2px solid var(--border-color); }
+  .page-header h1 { margin: 0; font-size: 1.875rem; color: var(--text-primary); display: flex; align-items: center; }
+  .subtitle { margin: 0.5rem 0 0 0; color: var(--text-secondary); font-size: 0.875rem; }
+  .loading-container { display: flex; flex-direction: column; align-items: center; padding: 4rem 2rem; }
+  .spinner { width: 48px; height: 48px; border: 4px solid #e5e7eb; border-top-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .alert { padding: 1rem; border-radius: 0.5rem; display: flex; gap: 0.75rem; margin-bottom: 1.5rem; }
+  .alert-error { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
+  .card { background: white; border: 1px solid var(--border-color); border-radius: 1rem; padding: 2rem; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); }
+  .form-section { margin-bottom: 2rem; padding-bottom: 2rem; border-bottom: 1px solid var(--border-color); }
+  .form-section:last-of-type { border: none; margin-bottom: 0; padding-bottom: 0; }
+  .form-section h2 { margin: 0 0 1.5rem 0; font-size: 1.125rem; font-weight: 700; }
+  .form-group { margin-bottom: 1.25rem; }
+  .form-group label { display: block; font-weight: 600; margin-bottom: 0.5rem; font-size: 0.9375rem; }
+  .required { color: #ef4444; }
+  .form-input, .form-select { width: 100%; padding: 0.75rem 1rem; border: 1px solid var(--border-color); border-radius: 0.5rem; font-size: 0.9375rem; }
+  .form-input:focus, .form-select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1); }
+  .form-group small { display: block; margin-top: 0.375rem; font-size: 0.8125rem; color: var(--text-secondary); }
+  .info-card { background: #eff6ff; border: 2px solid #bfdbfe; border-radius: 0.75rem; margin-bottom: 1.25rem; overflow: hidden; }
+  .info-card-header { display: flex; align-items: center; gap: 0.5rem; padding: 0.875rem 1.25rem; background: #dbeafe; font-weight: 600; color: #1e40af; font-size: 0.875rem; }
+  .info-card-body { padding: 1.25rem; display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; }
+  .info-item { display: flex; flex-direction: column; gap: 0.25rem; }
+  .info-label { font-size: 0.75rem; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; }
+  .info-value { font-size: 1.25rem; font-weight: 700; color: #1e40af; }
+  .form-actions { display: flex; justify-content: flex-end; gap: 1rem; margin-top: 2rem; padding-top: 2rem; border-top: 1px solid var(--border-color); }
+  .modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 1rem; }
+  .modal-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px); }
+  .modal-content { position: relative; background: white; border-radius: 1rem; max-width: 500px; width: 100%; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2); }
+  .modal-header { display: flex; align-items: center; gap: 1rem; padding: 1.5rem; border-bottom: 1px solid var(--border-color); }
+  .modal-header.success { background: #f0fdf4; border-bottom-color: #bbf7d0; }
+  .modal-header .material-symbols-outlined { font-size: 40px; color: #10b981; }
+  .modal-header h2 { margin: 0; font-size: 1.5rem; }
+  .modal-body { padding: 1.5rem; }
+  .success-details { display: flex; flex-direction: column; gap: 0.875rem; }
+  .detail-row { display: flex; justify-content: space-between; padding: 0.75rem; background: #f9fafb; border-radius: 0.5rem; }
+  .detail-row.total { background: #f0fdf4; border: 2px solid #bbf7d0; font-weight: 700; }
+  .modal-actions { display: flex; gap: 0.75rem; padding: 1.5rem; border-top: 1px solid var(--border-color); }
+  .modal-actions .btn { flex: 1; }
+  .hidden { display: none !important; }
+  @media (max-width: 768px) {
+    .page-header { flex-direction: column; align-items: flex-start; gap: 1rem; }
+    .info-card-body { grid-template-columns: 1fr; }
+    .form-actions, .modal-actions { flex-direction: column; }
+    .form-actions .btn, .modal-actions .btn { width: 100%; }
+  }
+</style>

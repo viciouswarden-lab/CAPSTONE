@@ -1,0 +1,249 @@
+---
+/**
+ * Error 500 Page - Internal Server Error
+ * 
+ * User-friendly error page displayed when unhandled exceptions occur.
+ * Shows a friendly message with support contact information and request ID
+ * for troubleshooting, but does NOT expose sensitive information like
+ * stack traces to end users.
+ * 
+ * Requirements 18.2: Display user-friendly error page
+ * Design: Error Handling - System Errors section
+ */
+
+import MainLayout from '../../layouts/MainLayout.astro';
+
+// Read error details from cookies (set by error boundary middleware)
+const requestId = Astro.cookies.get('error_request_id')?.value || 'N/A';
+const errorMessage = Astro.cookies.get('error_message')?.value || 'An unexpected error occurred';
+
+// Clear the error cookies after reading them
+Astro.cookies.delete('error_request_id', { path: '/' });
+Astro.cookies.delete('error_message', { path: '/' });
+
+// Get current timestamp for display
+const timestamp = new Date().toLocaleString();
+---
+
+<MainLayout title="System Error - PRO SYNAPSE" requireAuth={false}>
+  <div class="error-container">
+    <div class="error-card">
+      <!-- Error Icon -->
+      <div class="error-icon">
+        <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="8" x2="12" y2="12"></line>
+          <line x1="12" y1="16" x2="12.01" y2="16"></line>
+        </svg>
+      </div>
+
+      <!-- Error Title -->
+      <h1 class="error-title">Something Went Wrong</h1>
+      
+      <!-- User-Friendly Message -->
+      <p class="error-description">
+        We encountered an unexpected error while processing your request.
+        Our technical team has been notified and is working to resolve the issue.
+      </p>
+
+      <!-- Error Details (NO sensitive information) -->
+      <div class="error-details">
+        <div class="error-detail-item">
+          <span class="error-detail-label">Error:</span>
+          <span class="error-detail-value">{errorMessage}</span>
+        </div>
+        <div class="error-detail-item">
+          <span class="error-detail-label">Time:</span>
+          <span class="error-detail-value">{timestamp}</span>
+        </div>
+        <div class="error-detail-item">
+          <span class="error-detail-label">Request ID:</span>
+          <span class="error-detail-value request-id">{requestId}</span>
+        </div>
+      </div>
+
+      <!-- Support Information -->
+      <div class="error-support">
+        <p class="support-text">
+          If you need assistance, please contact our support team with the Request ID above.
+        </p>
+        <div class="support-contact">
+          <p><strong>Support Email:</strong> support@tpro-dynamics.com</p>
+          <p><strong>Support Phone:</strong> 1-800-TPRO-HELP</p>
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="error-actions">
+        <a href="javascript:history.back()" class="btn btn-secondary">
+          Go Back
+        </a>
+        <a href="/" class="btn btn-primary">
+          Return to Dashboard
+        </a>
+      </div>
+    </div>
+  </div>
+</MainLayout>
+
+<style>
+  .error-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 70vh;
+    padding: 2rem;
+  }
+
+  .error-card {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    padding: 3rem;
+    max-width: 600px;
+    width: 100%;
+    text-align: center;
+  }
+
+  .error-icon {
+    color: #dc2626; /* Red color for error */
+    margin-bottom: 1.5rem;
+  }
+
+  .error-icon svg {
+    width: 64px;
+    height: 64px;
+    margin: 0 auto;
+    display: block;
+  }
+
+  .error-title {
+    font-size: 2rem;
+    font-weight: bold;
+    color: #1f2937;
+    margin-bottom: 1rem;
+  }
+
+  .error-description {
+    font-size: 1.125rem;
+    color: #6b7280;
+    margin-bottom: 2rem;
+    line-height: 1.6;
+  }
+
+  .error-details {
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+    text-align: left;
+  }
+
+  .error-detail-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid #e5e7eb;
+  }
+
+  .error-detail-item:last-child {
+    border-bottom: none;
+  }
+
+  .error-detail-label {
+    font-weight: 600;
+    color: #4b5563;
+  }
+
+  .error-detail-value {
+    color: #1f2937;
+    word-break: break-all;
+  }
+
+  .request-id {
+    font-family: 'Courier New', monospace;
+    font-size: 0.875rem;
+  }
+
+  .error-support {
+    background: #eff6ff;
+    border-left: 4px solid #3b82f6;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+    text-align: left;
+  }
+
+  .support-text {
+    color: #1e40af;
+    margin-bottom: 1rem;
+    font-weight: 500;
+  }
+
+  .support-contact {
+    color: #1e3a8a;
+  }
+
+  .support-contact p {
+    margin: 0.5rem 0;
+  }
+
+  .error-actions {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  .btn {
+    display: inline-block;
+    padding: 0.75rem 1.5rem;
+    border-radius: 6px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: all 0.2s;
+    border: none;
+    cursor: pointer;
+  }
+
+  .btn-primary {
+    background: #3b82f6;
+    color: white;
+  }
+
+  .btn-primary:hover {
+    background: #2563eb;
+  }
+
+  .btn-secondary {
+    background: #e5e7eb;
+    color: #1f2937;
+  }
+
+  .btn-secondary:hover {
+    background: #d1d5db;
+  }
+
+  /* Responsive design */
+  @media (max-width: 640px) {
+    .error-card {
+      padding: 2rem 1.5rem;
+    }
+
+    .error-title {
+      font-size: 1.5rem;
+    }
+
+    .error-description {
+      font-size: 1rem;
+    }
+
+    .error-actions {
+      flex-direction: column;
+    }
+
+    .btn {
+      width: 100%;
+    }
+  }
+</style>

@@ -1,0 +1,501 @@
+---
+/**
+ * Invoice Detail Page
+ * 
+ * Displays extracted invoice data with variance highlighting for review.
+ * Shows invoice header info and line items with matched receiving data.
+ * 
+ * Requirements: 10.1, 10.3, 10.4
+ */
+
+import MainLayout from '../../layouts/MainLayout.astro';
+import ErrorMessage from '../../components/ErrorMessage.astro';
+import DataTable from '../../components/DataTable.astro';
+import { db } from '../../services/firebase';
+import { doc, getDoc } from 'firebase/firestore';
+import type { InvoiceLineItem } from '../../types/models';
+
+const { id } = Astro.params;
+
+// Fetch invoice data
+let invoice: any = null;
+let fetchError: string | null = null;
+
+try {
+  if (!id) {
+    fetchError = 'Invoice ID is required';
+  } else {
+    const invoiceRef = doc(db, 'invoices', id);
+    const invoiceSnap = await getDoc(invoiceRef);
+    
+    if (!invoiceSnap.exists()) {
+      fetchError = 'Invoice not found';
+    } else {
+      invoice = {
+        invoiceId: invoiceSnap.id,
+        ...invoiceSnap.data(),
+      };
+      
+      // Convert Firestore Timestamp to Date for display
+      if (invoice.invoiceDate?.toDate) {
+        invoice.invoiceDate = invoice.invoiceDate.toDate();
+      }
+      if (invoice.processedAt?.toDate) {
+        invoice.processedAt = invoice.processedAt.toDate();
+      }
+    }
+  }
+} catch (error) {
+  console.error('Error fetching invoice:', error);
+  fetchError = 'Failed to load invoice data';
+}
+
+// Format currency
+const formatCurrency = (value: number) => {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+  }).format(value);
+};
+
+// Format date
+const formatDate = (date: Date) => {
+  return new Intl.DateTimeFormat('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  }).format(date);
+};
+
+// Format percentage
+const formatPercentage = (value: number) => {
+  return `${value.toFixed(2)}%`;
+};
+
+// Prepare table data with variance information
+const lineItemsData = invoice?.lineItems?.map((item: any, index: number) => {
+  return {
+    rowNumber: index + 1,
+    productCode: item.productCode,
+    description: item.description,
+    quantity: item.quantity,
+    unitPrice: formatCurrency(item.unitPrice),
+    lineTotal: formatCurrency(item.lineTotal),
+    receivedQty: item.receivedQuantity ?? '-',
+    variance: item.hasVariance ? (
+      item.varianceType === 'both' ? 
+        `Qty: ${formatPercentage(item.quantityVariance!)}, Price: ${formatPercentage(item.priceVariance!)}` :
+      item.varianceType === 'quantity' ?
+        `Qty: ${formatPercentage(item.quantityVariance!)}` :
+        `Price: ${formatPercentage(item.priceVariance!)}`
+    ) : 'OK',
+    hasVariance: item.hasVariance,
+    varianceType: item.varianceType,
+  };
+}) || [];
+
+const columns = [
+  { key: 'rowNumber', label: '#', align: 'center' as const },
+  { key: 'productCode', label: 'Product Code', sortable: true },
+  { key: 'description', label: 'Description' },
+  { key: 'quantity', label: 'Qty', align: 'right' as const, sortable: true },
+  { key: 'unitPrice', label: 'Unit Price', align: 'right' as const },
+  { key: 'lineTotal', label: 'Line Total', align: 'right' as const },
+  { key: 'receivedQty', label: 'Received Qty', align: 'right' as const },
+  { key: 'variance', label: 'Variance', align: 'center' as const },
+];
+---
+
+<MainLayout title="Invoice Details" requireAuth={true} requiredRole="Clerk">
+  <div class="invoice-detail-page">
+    {fetchError ? (
+      <ErrorMessage message={fetchError} type="error" />
+    ) : invoice ? (
+      <>
+        <!-- Page Header -->
+        <div class="page-header">
+          <div class="header-content">
+            <h1>Invoice Details</h1>
+            <div class="header-actions">
+              <a href="/invoices/upload" class="btn btn-secondary">
+                Upload Another
+              </a>
+              <a href="/invoices" class="btn btn-secondary">
+                View All Invoices
+              </a>
+            </div>
+          </div>
+        </div>
+
+        <!-- Invoice Header Card -->
+        <div class="card mb-lg">
+          <h2>Invoice Information</h2>
+          <div class="invoice-header">
+            <div class="info-grid">
+              <div class="info-item">
+                <span class="info-label">Supplier:</span>
+                <span class="info-value">{invoice.supplierName}</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Invoice Number:</span>
+                <span class="info-value">{invoice.invoiceNumber}</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Invoice Date:</span>
+                <span class="info-value">{formatDate(invoice.invoiceDate)}</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Total Amount:</span>
+                <span class="info-value total-amount">{formatCurrency(invoice.totalAmount)}</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Line Items:</span>
+                <span class="info-value">{invoice.lineItems.length}</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Processed:</span>
+                <span class="info-value">{formatDate(invoice.processedAt)}</span>
+              </div>
+            </div>
+
+            {invoice.hasVariance && (
+              <div class="variance-alert">
+                <span class="alert-icon">⚠️</span>
+                <div>
+                  <p class="alert-title">Variances Detected</p>
+                  <p class="alert-text">
+                    This invoice contains line items with quantity or price variances exceeding 5% 
+                    compared to receiving records. Please review highlighted items below.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <!-- Line Items Table -->
+        <div class="card">
+          <h2>Line Items</h2>
+          <p class="text-muted mb-md">
+            Items with variances exceeding 5% are highlighted in red for review.
+          </p>
+          
+          <div class="table-wrapper">
+            <table class="invoice-table">
+              <thead>
+                <tr>
+                  {columns.map(col => (
+                    <th class={col.align === 'center' ? 'text-center' : col.align === 'right' ? 'text-right' : ''}>
+                      {col.label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {lineItemsData.map((item: any) => (
+                  <tr class={item.hasVariance ? 'variance-row' : ''}>
+                    <td class="text-center">{item.rowNumber}</td>
+                    <td>{item.productCode}</td>
+                    <td>{item.description}</td>
+                    <td class="text-right">{item.quantity}</td>
+                    <td class="text-right">{item.unitPrice}</td>
+                    <td class="text-right">{item.lineTotal}</td>
+                    <td class="text-right">{item.receivedQty}</td>
+                    <td class="text-center">
+                      {item.hasVariance ? (
+                        <span class="variance-badge">{item.variance}</span>
+                      ) : (
+                        <span class="ok-badge">{item.variance}</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr class="total-row">
+                  <td colspan="5" class="text-right"><strong>Total:</strong></td>
+                  <td class="text-right"><strong>{formatCurrency(invoice.totalAmount)}</strong></td>
+                  <td colspan="2"></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+
+        <!-- Legend -->
+        <div class="card mt-lg">
+          <h3>Legend</h3>
+          <div class="legend">
+            <div class="legend-item">
+              <span class="legend-color variance-color"></span>
+              <span>Variance > 5% - Requires review</span>
+            </div>
+            <div class="legend-item">
+              <span class="legend-color ok-color"></span>
+              <span>Within acceptable range</span>
+            </div>
+          </div>
+          <p class="text-muted text-sm mt-md">
+            <strong>Note:</strong> Variances are calculated by comparing invoice quantities and prices 
+            against completed receiving records. Items without matching receiving records are not flagged.
+          </p>
+        </div>
+      </>
+    ) : (
+      <ErrorMessage message="Invoice not found" type="error" />
+    )}
+  </div>
+</MainLayout>
+
+<style>
+  .invoice-detail-page {
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  .page-header {
+    margin-bottom: var(--spacing-2xl);
+  }
+
+  .header-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--spacing-md);
+  }
+
+  .header-content h1 {
+    margin: 0;
+  }
+
+  .header-actions {
+    display: flex;
+    gap: var(--spacing-sm);
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--spacing-sm) var(--spacing-md);
+    font-size: 0.875rem;
+    font-weight: 500;
+    border: none;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all 0.2s;
+    text-decoration: none;
+  }
+
+  .btn-secondary {
+    background-color: white;
+    color: var(--color-text);
+    border: 1px solid var(--color-border);
+  }
+
+  .btn-secondary:hover {
+    background-color: var(--color-surface);
+  }
+
+  .invoice-header {
+    margin-top: var(--spacing-md);
+  }
+
+  .info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: var(--spacing-lg);
+    margin-bottom: var(--spacing-lg);
+  }
+
+  .info-item {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+  }
+
+  .info-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--color-text-secondary);
+  }
+
+  .info-value {
+    font-size: 1rem;
+    color: var(--color-text);
+  }
+
+  .total-amount {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--color-primary);
+  }
+
+  .variance-alert {
+    display: flex;
+    gap: var(--spacing-md);
+    padding: var(--spacing-md);
+    background-color: #fef3c7;
+    border: 1px solid #f59e0b;
+    border-radius: var(--radius-md);
+    margin-top: var(--spacing-lg);
+  }
+
+  .alert-icon {
+    font-size: 1.5rem;
+  }
+
+  .alert-title {
+    font-weight: 600;
+    color: #92400e;
+    margin-bottom: var(--spacing-xs);
+  }
+
+  .alert-text {
+    font-size: 0.875rem;
+    color: #78350f;
+    margin: 0;
+  }
+
+  .table-wrapper {
+    overflow-x: auto;
+    margin-top: var(--spacing-md);
+  }
+
+  .invoice-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+  }
+
+  .invoice-table thead {
+    background-color: var(--color-surface);
+    border-bottom: 2px solid var(--color-border);
+  }
+
+  .invoice-table th {
+    padding: var(--spacing-sm) var(--spacing-md);
+    text-align: left;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+    white-space: nowrap;
+  }
+
+  .invoice-table td {
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .invoice-table tbody tr {
+    transition: background-color 0.15s;
+  }
+
+  .invoice-table tbody tr:hover {
+    background-color: var(--color-surface);
+  }
+
+  /* Requirement 10.4: Highlight variances > 5% */
+  .variance-row {
+    background-color: #fee2e2 !important;
+  }
+
+  .variance-row:hover {
+    background-color: #fecaca !important;
+  }
+
+  .variance-badge {
+    display: inline-block;
+    padding: var(--spacing-xs) var(--spacing-sm);
+    background-color: #dc2626;
+    color: white;
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    font-weight: 500;
+  }
+
+  .ok-badge {
+    display: inline-block;
+    padding: var(--spacing-xs) var(--spacing-sm);
+    background-color: #10b981;
+    color: white;
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    font-weight: 500;
+  }
+
+  .total-row {
+    background-color: var(--color-surface);
+    font-weight: 600;
+  }
+
+  .total-row td {
+    border-top: 2px solid var(--color-border);
+    border-bottom: 2px solid var(--color-border);
+    padding: var(--spacing-md);
+  }
+
+  .legend {
+    display: flex;
+    gap: var(--spacing-xl);
+    margin-top: var(--spacing-md);
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-size: 0.875rem;
+  }
+
+  .legend-color {
+    display: inline-block;
+    width: 24px;
+    height: 24px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--color-border);
+  }
+
+  .variance-color {
+    background-color: #fee2e2;
+  }
+
+  .ok-color {
+    background-color: white;
+  }
+
+  @media (max-width: 768px) {
+    .header-content {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .header-actions {
+      width: 100%;
+      flex-direction: column;
+    }
+
+    .btn {
+      width: 100%;
+    }
+
+    .info-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .invoice-table {
+      font-size: 0.75rem;
+    }
+
+    .invoice-table th,
+    .invoice-table td {
+      padding: var(--spacing-xs) var(--spacing-sm);
+    }
+
+    .legend {
+      flex-direction: column;
+      gap: var(--spacing-sm);
+    }
+  }
+</style>

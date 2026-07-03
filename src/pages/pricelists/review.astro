@@ -1,0 +1,697 @@
+---
+/**
+ * Pricelist Review Page - Modern Client-Side Version
+ * 
+ * Displays parsed pricelist items with match status, highlights new products
+ * and significant price changes, with filtering and search.
+ * 
+ * Uses query parameter ?id=xxx to identify which pricelist to display.
+ * 
+ * Requirements: 5.3, 5.4, 6.6
+ */
+
+import ModernLayout from '../../layouts/ModernLayout.astro';
+
+// Disable caching
+Astro.response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+---
+
+<ModernLayout title="Pricelist Review">
+  <!-- Loading State -->
+  <div id="loading-state" class="loading-container">
+    <div class="spinner"></div>
+    <p style="margin-top: 1rem; color: var(--text-secondary);">Loading pricelist from Firestore...</p>
+  </div>
+
+  <!-- Error Display -->
+  <div id="error-display" class="hidden">
+    <div class="alert alert-danger mb-6">
+      <span class="material-symbols-outlined">error</span>
+      <div>
+        <strong>Error Loading Pricelist:</strong> <span id="error-message"></span>
+      </div>
+    </div>
+    <div style="text-align: center; margin-top: 2rem;">
+      <a href="/pricelists" class="btn btn-primary">
+        <span class="material-symbols-outlined">arrow_back</span>
+        Back to Pricelists
+      </a>
+    </div>
+  </div>
+
+  <!-- Pricelist Content -->
+  <div id="pricelist-content" class="hidden">
+    <!-- Page Header -->
+    <div class="page-header">
+      <div>
+        <a href="/pricelists" class="back-link">← Back to Pricelists</a>
+        <h1 id="page-title">Pricelist Review</h1>
+        <p class="subtitle" id="page-subtitle">Loading...</p>
+      </div>
+    </div>
+
+    <!-- Statistics Cards -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <span class="material-symbols-outlined stat-icon" style="color: #6b7280;">inventory_2</span>
+        <div class="stat-label">Total Items</div>
+        <div class="stat-value" id="total-items">0</div>
+      </div>
+      
+      <div class="stat-card">
+        <span class="material-symbols-outlined stat-icon" style="color: #10b981;">check_circle</span>
+        <div class="stat-label">Matched</div>
+        <div class="stat-value" id="matched-items" style="color: #10b981;">0</div>
+      </div>
+      
+      <div class="stat-card">
+        <span class="material-symbols-outlined stat-icon" style="color: #3b82f6;">new_releases</span>
+        <div class="stat-label">New Products</div>
+        <div class="stat-value" id="unmatched-items" style="color: #3b82f6;">0</div>
+      </div>
+      
+      <div class="stat-card">
+        <span class="material-symbols-outlined stat-icon" style="color: #f59e0b;">help</span>
+        <div class="stat-label">Suggested</div>
+        <div class="stat-value" id="suggested-items" style="color: #f59e0b;">0</div>
+      </div>
+
+      
+      <div class="stat-card">
+        <span class="material-symbols-outlined stat-icon" style="color: #f97316;">trending_up</span>
+        <div class="stat-label">Price Changes</div>
+        <div class="stat-value" id="price-changes" style="color: #f97316;">0</div>
+      </div>
+    </div>
+
+    <!-- Filter and Search Controls -->
+    <div class="card">
+      <div class="card-body">
+        <div class="controls-section">
+          <!-- Search Bar -->
+          <div class="search-input-wrapper">
+            <span class="material-symbols-outlined search-icon">search</span>
+            <input 
+              type="text" 
+              id="search-input"
+              class="search-input" 
+              placeholder="Search by supplier code or description..."
+            />
+          </div>
+          
+          <!-- Filter Controls -->
+          <div class="filter-controls">
+            <select id="match-status-filter" class="form-select">
+              <option value="">All Match Status</option>
+              <option value="matched">Matched</option>
+              <option value="unmatched">New Products</option>
+              <option value="suggested">Suggested</option>
+            </select>
+            
+            <button id="show-new-only" class="btn btn-secondary" data-active="false">
+              <span class="material-symbols-outlined">new_releases</span>
+              New Only
+            </button>
+            
+            <button id="show-price-changes-only" class="btn btn-secondary" data-active="false">
+              <span class="material-symbols-outlined">trending_up</span>
+              Price Changes
+            </button>
+            
+            <button id="reset-filters" class="btn btn-secondary">
+              <span class="material-symbols-outlined">refresh</span>
+              Reset
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pricelist Items Table -->
+    <div class="card">
+      <div class="card-header">
+        <h2>Pricelist Items</h2>
+        <span class="badge badge-info" id="visible-count">0 items</span>
+      </div>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Supplier Code</th>
+              <th>Description</th>
+              <th style="text-align: right;">Price</th>
+              <th>UOM</th>
+              <th>Match Status</th>
+              <th>Matched SKU</th>
+              <th>Flags</th>
+            </tr>
+          </thead>
+          <tbody id="items-tbody">
+            <!-- Populated by JavaScript -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</ModernLayout>
+
+<script>
+  /**
+   * Client-side functionality for pricelist review page
+   * Handles data loading from Firestore, filtering, search, and table interactions
+   */
+
+  import { db } from '../../services/firebase';
+  import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
+
+  // Get pricelist ID from query parameter
+  const urlParams = new URLSearchParams(window.location.search);
+  const pricelistId = urlParams.get('id');
+
+  // Redirect if no ID provided
+  if (!pricelistId) {
+    window.location.href = '/pricelists';
+  }
+
+  // DOM elements
+  const loadingState = document.getElementById('loading-state')!;
+  const errorDisplay = document.getElementById('error-display')!;
+  const errorMessage = document.getElementById('error-message')!;
+  const pricelistContent = document.getElementById('pricelist-content')!;
+  const pageTitle = document.getElementById('page-title')!;
+  const pageSubtitle = document.getElementById('page-subtitle')!;
+  
+  // Stats elements
+  const totalItemsEl = document.getElementById('total-items')!;
+  const matchedItemsEl = document.getElementById('matched-items')!;
+  const unmatchedItemsEl = document.getElementById('unmatched-items')!;
+  const suggestedItemsEl = document.getElementById('suggested-items')!;
+  const newProductsEl = document.getElementById('new-products')!;
+  const priceChangesEl = document.getElementById('price-changes')!;
+  
+  // Filter elements
+  const searchInput = document.getElementById('search-input') as HTMLInputElement;
+  const matchStatusFilter = document.getElementById('match-status-filter') as HTMLSelectElement;
+  const showNewOnlyBtn = document.getElementById('show-new-only') as HTMLButtonElement;
+  const showPriceChangesOnlyBtn = document.getElementById('show-price-changes-only') as HTMLButtonElement;
+  const resetFiltersBtn = document.getElementById('reset-filters') as HTMLButtonElement;
+  const itemsTbody = document.getElementById('items-tbody')!;
+  const visibleCount = document.getElementById('visible-count')!;
+
+  // Data storage
+  let allItems: any[] = [];
+  let priceChangeMap = new Map<string, any>();
+
+  // Filter state
+  let searchTerm = '';
+  let matchStatusValue = '';
+  let showNewOnly = false;
+  let showPriceChangesOnly = false;
+
+  // Treat unmatched items as new products
+  const isNewProduct = (item: any) => item.matchStatus === 'unmatched' || item.isNewProduct;
+
+  // Format date helper
+  const formatDate = (timestamp: any): string => {
+    if (!timestamp) return 'N/A';
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    return new Intl.DateTimeFormat('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    }).format(date);
+  };
+
+  // Format currency helper
+  const formatCurrency = (value: number): string => {
+    return new Intl.NumberFormat('en-PH', {
+      style: 'currency',
+      currency: 'PHP'
+    }).format(value);
+  };
+
+  // Render items table
+  const renderItems = () => {
+    let visibleItemCount = 0;
+    itemsTbody.innerHTML = '';
+
+    allItems.forEach(item => {
+      // Apply filters
+      let visible = true;
+
+      // Search filter
+      if (searchTerm) {
+        const codeMatch = item.supplierCode.toLowerCase().includes(searchTerm);
+        const descMatch = item.description.toLowerCase().includes(searchTerm);
+        visible = visible && (codeMatch || descMatch);
+      }
+
+      // Match status filter
+      if (matchStatusValue) {
+        visible = visible && item.matchStatus === matchStatusValue;
+      }
+
+      // New products filter (includes unmatched items)
+      if (showNewOnly) {
+        visible = visible && isNewProduct(item);
+      }
+
+      // Price changes filter
+      if (showPriceChangesOnly) {
+        const hasPriceChange = (item.matchedSKU && priceChangeMap.has(item.matchedSKU)) || 
+                              priceChangeMap.has(item.supplierCode);
+        visible = visible && hasPriceChange;
+      }
+
+      if (!visible) return;
+
+      visibleItemCount++;
+
+      // Get price change info if available
+      const priceChange = item.matchedSKU 
+        ? priceChangeMap.get(item.matchedSKU) 
+        : priceChangeMap.get(item.supplierCode); // Fallback to supplier code for unmatched items
+
+      // Build badges
+      let badges = '';
+      if (isNewProduct(item)) {
+        badges += '<span class="badge badge-new">NEW</span>';
+      }
+      if (priceChange) {
+        const changePercent = Math.abs(priceChange.percentageChange).toFixed(1);
+        const isIncrease = priceChange.percentageChange > 0;
+        const arrow = isIncrease ? '↑' : '↓';
+        const badgeClass = isIncrease ? 'badge-price-increase' : 'badge-price-decrease';
+        badges += `<span class="badge ${badgeClass}">${arrow}${changePercent}%</span>`;
+      }
+
+      // Build status badge with confidence
+      let statusBadge = '';
+      const confidence = item.matchConfidence ? `${(item.matchConfidence * 100).toFixed(0)}%` : '';
+      const matchMethod = item.matchMethod ? ` (${item.matchMethod})` : '';
+      
+      if (item.matchStatus === 'matched') {
+        statusBadge = `<span class="badge badge-success" title="Confidence: ${confidence}${matchMethod}">Matched ${confidence}</span>`;
+      } else if (item.matchStatus === 'unmatched') {
+        statusBadge = '<span class="badge badge-info">New Product</span>';
+      } else if (item.matchStatus === 'suggested') {
+        statusBadge = `<span class="badge badge-warning" title="Confidence: ${confidence}${matchMethod}">Suggested ${confidence}</span>`;
+      }
+
+      // Create row
+      const row = document.createElement('tr');
+      if (isNewProduct(item)) row.classList.add('row-new');
+      if (priceChange) row.classList.add('row-price-change');
+      
+      row.innerHTML = `
+        <td class="text-sm font-mono">${item.supplierCode}</td>
+        <td>${item.description}</td>
+        <td style="text-align: right;" class="font-semibold">${formatCurrency(item.price)}</td>
+        <td class="text-sm">${item.uom || '-'}</td>
+        <td>${statusBadge}</td>
+        <td class="text-sm font-mono">${item.matchedSKU || '-'}</td>
+        <td>${badges || '-'}</td>
+      `;
+      
+      itemsTbody.appendChild(row);
+    });
+
+    visibleCount.textContent = `${visibleItemCount} item${visibleItemCount !== 1 ? 's' : ''}`;
+  };
+
+  // Apply all filters
+  const applyFilters = () => {
+    renderItems();
+  };
+
+  // Load pricelist data from Firestore
+  const loadPricelist = async () => {
+    try {
+      loadingState.classList.remove('hidden');
+      errorDisplay.classList.add('hidden');
+      pricelistContent.classList.add('hidden');
+
+      if (!pricelistId) {
+        throw new Error('No pricelist ID provided');
+      }
+
+      // Fetch pricelist document
+      const pricelistRef = doc(db!, 'pricelists', pricelistId);
+      const pricelistSnap = await getDoc(pricelistRef);
+
+      if (!pricelistSnap.exists()) {
+        throw new Error('Pricelist not found');
+      }
+
+      const pricelistData = pricelistSnap.data();
+
+      // Fetch supplier information
+      let supplierName = pricelistData.supplierName || 'Unknown Supplier';
+      if (pricelistData.supplierId) {
+        const supplierRef = doc(db!, 'suppliers', pricelistData.supplierId);
+        const supplierSnap = await getDoc(supplierRef);
+        if (supplierSnap.exists()) {
+          supplierName = supplierSnap.data().name;
+        }
+      }
+
+      // Update header
+      pageTitle.textContent = `${supplierName} - Pricelist Review`;
+      pageSubtitle.textContent = `Uploaded: ${formatDate(pricelistData.uploadDate)} | File: ${pricelistData.fileName}`;
+
+      // Fetch pricelist items
+      const itemsRef = collection(db!, 'pricelist_items');
+      const itemsQuery = query(itemsRef, where('pricelistId', '==', pricelistId));
+      const itemsSnap = await getDocs(itemsQuery);
+      
+      allItems = itemsSnap.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+
+      // Fetch price changes (all changes, not just significant)
+      const priceChangesRef = collection(db!, 'price_changes');
+      const priceChangesQuery = query(
+        priceChangesRef,
+        where('newPricelistId', '==', pricelistId)
+      );
+      const priceChangesSnap = await getDocs(priceChangesQuery);
+      
+      priceChangesSnap.docs.forEach(doc => {
+        const data = doc.data();
+        // Store by both SKU and supplier code for better matching
+        priceChangeMap.set(data.sku, data);
+        if (data.supplierCode) {
+          priceChangeMap.set(data.supplierCode, data);
+        }
+      });
+
+      // Calculate statistics
+      const totalItems = allItems.length;
+      const matchedItems = allItems.filter(item => item.matchStatus === 'matched').length;
+      const unmatchedItems = allItems.filter(item => item.matchStatus === 'unmatched').length;
+      const suggestedItems = allItems.filter(item => item.matchStatus === 'suggested').length;
+      const newProducts = allItems.filter(item => isNewProduct(item)).length;
+      const significantPriceChanges = priceChangeMap.size;
+
+      // Calculate average confidence for matched/suggested items
+      const itemsWithConfidence = allItems.filter(item => item.matchConfidence && item.matchConfidence > 0);
+      const avgConfidence = itemsWithConfidence.length > 0
+        ? itemsWithConfidence.reduce((sum, item) => sum + (item.matchConfidence || 0), 0) / itemsWithConfidence.length
+        : 0;
+
+      console.log(`Match statistics: ${matchedItems} matched (${((matchedItems/totalItems)*100).toFixed(1)}%), ${suggestedItems} suggested (${((suggestedItems/totalItems)*100).toFixed(1)}%), ${unmatchedItems} unmatched (${((unmatchedItems/totalItems)*100).toFixed(1)}%)`);
+      console.log(`Average match confidence: ${(avgConfidence * 100).toFixed(1)}%`);
+
+      // Update stats (unmatched now shown as new products)
+      totalItemsEl.textContent = totalItems.toString();
+      matchedItemsEl.textContent = matchedItems.toString();
+      unmatchedItemsEl.textContent = newProducts.toString();
+      suggestedItemsEl.textContent = suggestedItems.toString();
+      priceChangesEl.textContent = significantPriceChanges.toString();
+
+      // Render table
+      renderItems();
+
+      // Show content
+      loadingState.classList.add('hidden');
+      pricelistContent.classList.remove('hidden');
+
+    } catch (err) {
+      loadingState.classList.add('hidden');
+      errorDisplay.classList.remove('hidden');
+      
+      const errMsg = err instanceof Error ? err.message : 'Failed to load pricelist';
+      errorMessage.textContent = errMsg;
+      
+      console.error('Error loading pricelist:', err);
+    }
+  };
+
+  // Event listeners
+  searchInput.addEventListener('input', (e) => {
+    searchTerm = (e.target as HTMLInputElement).value.toLowerCase();
+    applyFilters();
+  });
+
+  matchStatusFilter.addEventListener('change', (e) => {
+    matchStatusValue = (e.target as HTMLSelectElement).value;
+    applyFilters();
+  });
+
+  showNewOnlyBtn.addEventListener('click', () => {
+    showNewOnly = !showNewOnly;
+    showNewOnlyBtn.setAttribute('data-active', showNewOnly.toString());
+    if (showNewOnly) {
+      showNewOnlyBtn.classList.add('btn-active');
+    } else {
+      showNewOnlyBtn.classList.remove('btn-active');
+    }
+    applyFilters();
+  });
+
+  showPriceChangesOnlyBtn.addEventListener('click', () => {
+    showPriceChangesOnly = !showPriceChangesOnly;
+    showPriceChangesOnlyBtn.setAttribute('data-active', showPriceChangesOnly.toString());
+    if (showPriceChangesOnly) {
+      showPriceChangesOnlyBtn.classList.add('btn-active');
+    } else {
+      showPriceChangesOnlyBtn.classList.remove('btn-active');
+    }
+    applyFilters();
+  });
+
+  resetFiltersBtn.addEventListener('click', () => {
+    searchTerm = '';
+    matchStatusValue = '';
+    showNewOnly = false;
+    showPriceChangesOnly = false;
+    
+    searchInput.value = '';
+    matchStatusFilter.value = '';
+    showNewOnlyBtn.setAttribute('data-active', 'false');
+    showNewOnlyBtn.classList.remove('btn-active');
+    showPriceChangesOnlyBtn.setAttribute('data-active', 'false');
+    showPriceChangesOnlyBtn.classList.remove('btn-active');
+    
+    applyFilters();
+  });
+
+  // Load pricelist on page load
+  loadPricelist();
+</script>
+
+<style>
+  .loading-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 2rem;
+  }
+
+  .spinner {
+    width: 48px;
+    height: 48px;
+    border: 4px solid #e5e7eb;
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .back-link {
+    display: inline-block;
+    color: #2563eb;
+    text-decoration: none;
+    margin-bottom: 0.5rem;
+    font-size: 0.875rem;
+  }
+
+  .back-link:hover {
+    text-decoration: underline;
+  }
+
+  .page-header h1 {
+    font-size: 2rem;
+    color: #111827;
+    margin-bottom: 0.5rem;
+  }
+
+  .subtitle {
+    color: #6b7280;
+    font-size: 0.875rem;
+  }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+  }
+
+  .stat-card {
+    background: white;
+    border-radius: 0.75rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    padding: 1.5rem;
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+
+  .stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+  }
+
+  .stat-icon {
+    font-size: 32px;
+    margin-bottom: 0.5rem;
+  }
+
+  .stat-label {
+    font-size: 0.75rem;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 0.25rem;
+  }
+
+  .stat-value {
+    font-size: 1.875rem;
+    font-weight: 700;
+    color: #111827;
+  }
+
+  .controls-section {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .search-input-wrapper {
+    position: relative;
+    flex: 1;
+  }
+
+  .search-icon {
+    position: absolute;
+    left: 1rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #9ca3af;
+    pointer-events: none;
+  }
+
+  .search-input {
+    width: 100%;
+    padding: 0.75rem 1rem 0.75rem 3rem;
+    border: 1px solid #d1d5db;
+    border-radius: 0.5rem;
+    font-size: 0.875rem;
+  }
+
+  .search-input:focus {
+    outline: none;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  }
+
+  .filter-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  .form-select {
+    padding: 0.75rem;
+    border: 1px solid #d1d5db;
+    border-radius: 0.5rem;
+    font-size: 0.875rem;
+  }
+
+  .btn-active {
+    background-color: #2563eb !important;
+    color: white !important;
+    border-color: #2563eb !important;
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    border-radius: 0.375rem;
+    margin-right: 0.25rem;
+  }
+
+  .badge-new {
+    background-color: #dbeafe;
+    color: #1e40af;
+  }
+
+  .badge-price-increase {
+    background-color: #fed7aa;
+    color: #c2410c;
+  }
+
+  .badge-price-decrease {
+    background-color: #d1fae5;
+    color: #065f46;
+  }
+
+  .badge-success {
+    background-color: #d1fae5;
+    color: #065f46;
+  }
+
+  .badge-danger {
+    background-color: #fee2e2;
+    color: #991b1b;
+  }
+
+  .badge-info {
+    background-color: #dbeafe;
+    color: #1e40af;
+  }
+
+  .badge-warning {
+    background-color: #fef3c7;
+    color: #92400e;
+  }
+
+  .row-new {
+    background-color: #eff6ff !important;
+  }
+
+  .row-price-change {
+    background-color: #fff7ed !important;
+  }
+
+  .hidden {
+    display: none !important;
+  }
+
+  @media (max-width: 768px) {
+    .stats-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+
+    .controls-section {
+      flex-direction: column;
+    }
+
+    .filter-controls {
+      flex-direction: column;
+    }
+
+    .btn {
+      width: 100%;
+      justify-content: center;
+    }
+  }
+</style>

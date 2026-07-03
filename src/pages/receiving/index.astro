@@ -1,0 +1,668 @@
+---
+/**
+ * Receiving Management Page - Client-Side
+ * 
+ * Displays receiving records from Firestore.
+ * Tracks incoming shipments and updates inventory.
+ */
+
+import ModernLayout from '../../layouts/ModernLayout.astro';
+
+Astro.response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+---
+
+<ModernLayout title="Receiving">
+  <div class="receiving-page">
+    <!-- Page Header -->
+    <div class="page-header">
+      <div>
+        <h1>
+          <span class="material-symbols-outlined" style="vertical-align: middle; margin-right: 0.5rem;">move_to_inbox</span>
+          Receiving Management
+        </h1>
+        <p class="subtitle">Track incoming shipments and update inventory</p>
+      </div>
+      <div class="page-actions">
+        <button class="btn btn-secondary" id="export-btn">
+          <span class="material-symbols-outlined">download</span>
+          Export
+        </button>
+        <a href="/receiving/new" class="btn btn-primary">
+          <span class="material-symbols-outlined">add</span>
+          New Receiving
+        </a>
+      </div>
+    </div>
+
+    <!-- Loading State -->
+    <div id="loading-state" class="loading-container">
+      <div class="spinner"></div>
+      <p style="margin-top: 1rem; color: var(--text-secondary);">Loading receiving records...</p>
+    </div>
+
+    <!-- Error Display -->
+    <div id="error-display" class="hidden">
+      <div class="alert alert-error">
+        <span class="material-symbols-outlined">error</span>
+        <div>
+          <strong>Error:</strong> <span id="error-message"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Content -->
+    <div id="content" class="hidden">
+
+      <!-- Variance Alert -->
+      <div id="variance-alert" class="alert alert-warning hidden">
+        <span class="material-symbols-outlined">warning</span>
+        <div>
+          <strong>Variance Detected:</strong> <span id="variance-text"></span>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <span class="material-symbols-outlined stat-icon" style="color: #3b82f6;">move_to_inbox</span>
+          <div class="stat-label">Total Records</div>
+          <div class="stat-value" id="total-records">0</div>
+        </div>
+
+        <div class="stat-card">
+          <span class="material-symbols-outlined stat-icon" style="color: #f59e0b;">pending</span>
+          <div class="stat-label">Pending</div>
+          <div class="stat-value" id="pending-count" style="color: #f59e0b;">0</div>
+        </div>
+
+        <div class="stat-card">
+          <span class="material-symbols-outlined stat-icon" style="color: #10b981;">check_circle</span>
+          <div class="stat-label">Completed</div>
+          <div class="stat-value" id="completed-count" style="color: #10b981;">0</div>
+        </div>
+
+        <div class="stat-card">
+          <span class="material-symbols-outlined stat-icon" style="color: #ef4444;">error</span>
+          <div class="stat-label">With Variance</div>
+          <div class="stat-value" id="variance-count" style="color: #ef4444;">0</div>
+        </div>
+      </div>
+
+      <!-- Search and Filters -->
+      <div class="card filters-card">
+        <div class="search-bar">
+          <div class="search-input-wrapper">
+            <span class="material-symbols-outlined search-icon">search</span>
+            <input type="text" id="search-input" class="search-input" 
+                   placeholder="Search by receiving ID or supplier..." />
+          </div>
+          <select id="status-filter" class="form-select">
+            <option value="all">All Status</option>
+            <option value="pending">Pending</option>
+            <option value="completed">Completed</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Receiving Records Table -->
+      <div class="card">
+        <div id="empty-state" class="empty-state hidden">
+          <span class="material-symbols-outlined empty-icon">move_to_inbox</span>
+          <h3>No Receiving Records Yet</h3>
+          <p>Start by creating a new receiving record to track incoming shipments</p>
+          <a href="/receiving/new" class="btn btn-primary">
+            <span class="material-symbols-outlined">add</span>
+            Create Receiving Record
+          </a>
+        </div>
+
+        <div id="table-container" class="hidden">
+          <table>
+            <thead>
+              <tr>
+                <th>Receiving ID</th>
+                <th>Supplier</th>
+                <th>Date</th>
+                <th>Items</th>
+                <th>Total Qty</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="records-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</ModernLayout>
+
+
+<script>
+  import { db } from '../../services/firebase';
+  import { collection, getDocs, query, orderBy } from 'firebase/firestore';
+
+  const loadingState = document.getElementById('loading-state')!;
+  const errorDisplay = document.getElementById('error-display')!;
+  const errorMessage = document.getElementById('error-message')!;
+  const content = document.getElementById('content')!;
+  const varianceAlert = document.getElementById('variance-alert')!;
+  const varianceText = document.getElementById('variance-text')!;
+  const totalRecordsEl = document.getElementById('total-records')!;
+  const pendingCountEl = document.getElementById('pending-count')!;
+  const completedCountEl = document.getElementById('completed-count')!;
+  const varianceCountEl = document.getElementById('variance-count')!;
+  const searchInput = document.getElementById('search-input') as HTMLInputElement;
+  const statusFilter = document.getElementById('status-filter') as HTMLSelectElement;
+  const emptyState = document.getElementById('empty-state')!;
+  const tableContainer = document.getElementById('table-container')!;
+  const recordsTbody = document.getElementById('records-tbody')!;
+
+  let allRecords: any[] = [];
+  let filteredRecords: any[] = [];
+  let suppliersCache = new Map<string, string>();
+
+  const formatDate = (date: Date) => {
+    return new Intl.DateTimeFormat('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    }).format(date);
+  };
+
+  const getStatusBadge = (status: string, hasVariance: boolean) => {
+    if (status === 'pending') {
+      return '<span class="badge badge-warning">Pending</span>';
+    }
+    if (hasVariance) {
+      return '<span class="badge badge-danger">Completed (Variance)</span>';
+    }
+    return '<span class="badge badge-success">Completed</span>';
+  };
+
+  const renderTable = (records: any[]) => {
+    recordsTbody.innerHTML = '';
+    
+    if (records.length === 0) {
+      emptyState.classList.remove('hidden');
+      tableContainer.classList.add('hidden');
+      return;
+    }
+
+    emptyState.classList.add('hidden');
+    tableContainer.classList.remove('hidden');
+
+    records.forEach(record => {
+      console.log('Rendering record:', record.receivingId, 'lineItems:', record.lineItems);
+      
+      const row = document.createElement('tr');
+      const itemCount = record.lineItems?.length || 0;
+      const totalQty = record.lineItems?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 0;
+      
+      console.log(`  Items: ${itemCount}, Total Qty: ${totalQty}`);
+      
+      row.innerHTML = `
+        <td class="font-mono font-semibold">${record.receivingId}</td>
+        <td>${suppliersCache.get(record.supplierId) || 'Unknown Supplier'}</td>
+        <td class="text-sm">${formatDate(record.receivingDate.toDate())}</td>
+        <td class="text-center">${itemCount}</td>
+        <td class="text-center font-semibold">${totalQty}</td>
+        <td>${getStatusBadge(record.status, record.hasVariance || false)}</td>
+        <td>
+          <div class="flex gap-2">
+            <a href="/receiving/view?id=${record.id}" class="btn-ghost" style="padding: 0.5rem;" title="View details">
+              <span class="material-symbols-outlined" style="font-size: 20px;">visibility</span>
+            </a>
+          </div>
+        </td>
+      `;
+      recordsTbody.appendChild(row);
+    });
+  };
+
+  const filterRecords = () => {
+    const searchText = searchInput.value.toLowerCase().trim();
+    const status = statusFilter.value;
+
+    filteredRecords = allRecords.filter(record => {
+      if (status !== 'all' && record.status !== status) return false;
+
+      if (searchText) {
+        const idMatch = record.receivingId.toLowerCase().includes(searchText);
+        const supplierMatch = (suppliersCache.get(record.supplierId) || '').toLowerCase().includes(searchText);
+        return idMatch || supplierMatch;
+      }
+
+      return true;
+    });
+
+    renderTable(filteredRecords);
+  };
+
+  const loadRecords = async () => {
+    try {
+      loadingState.classList.remove('hidden');
+      errorDisplay.classList.add('hidden');
+
+      // Load suppliers first
+      const suppliersRef = collection(db!, 'suppliers');
+      const suppliersSnap = await getDocs(suppliersRef);
+      suppliersSnap.forEach(doc => {
+        suppliersCache.set(doc.id, doc.data().name);
+      });
+
+      // Load receiving records
+      const recordsRef = collection(db!, 'receiving_records');
+      const q = query(recordsRef, orderBy('receivingDate', 'desc'));
+      const recordsSnap = await getDocs(q);
+
+      allRecords = recordsSnap.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+
+      filteredRecords = allRecords;
+
+      // Update stats
+      const pending = allRecords.filter(r => r.status === 'pending').length;
+      const completed = allRecords.filter(r => r.status === 'completed').length;
+      const variance = allRecords.filter(r => r.hasVariance).length;
+
+      totalRecordsEl.textContent = allRecords.length.toString();
+      pendingCountEl.textContent = pending.toString();
+      completedCountEl.textContent = completed.toString();
+      varianceCountEl.textContent = variance.toString();
+
+      // Show variance alert
+      if (variance > 0) {
+        varianceText.textContent = `${variance} receiving ${variance === 1 ? 'record has' : 'records have'} quantity discrepancies. Review for accuracy.`;
+        varianceAlert.classList.remove('hidden');
+      }
+
+      renderTable(filteredRecords);
+
+      loadingState.classList.add('hidden');
+      content.classList.remove('hidden');
+    } catch (err) {
+      loadingState.classList.add('hidden');
+      errorDisplay.classList.remove('hidden');
+      errorMessage.textContent = err instanceof Error ? err.message : 'Failed to load';
+      console.error('Error loading records:', err);
+    }
+  };
+
+  searchInput.addEventListener('input', filterRecords);
+  statusFilter.addEventListener('change', filterRecords);
+
+  loadRecords();
+</script>
+
+<style>
+  .receiving-page {
+    padding: 1.5rem;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+
+  .page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 2rem;
+    gap: 2rem;
+  }
+
+  .page-header h1 {
+    font-size: 2rem;
+    font-weight: 600;
+    margin: 0 0 0.5rem 0;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+  }
+
+  .subtitle {
+    color: var(--text-secondary);
+    margin: 0;
+  }
+
+  .page-actions {
+    display: flex;
+    gap: 0.75rem;
+  }
+
+  /* Loading and Error States */
+  .loading-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 2rem;
+  }
+
+  .spinner {
+    width: 48px;
+    height: 48px;
+    border: 4px solid var(--border-color);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .hidden {
+    display: none !important;
+  }
+
+  .alert {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 1rem;
+    border-radius: 8px;
+    margin-bottom: 1.5rem;
+    border: 1px solid;
+  }
+
+  .alert-error {
+    background: #fef2f2;
+    color: #991b1b;
+    border-color: #fca5a5;
+  }
+
+  .alert-warning {
+    background: #fffbeb;
+    color: #92400e;
+    border-color: #fcd34d;
+  }
+
+  .alert .material-symbols-outlined {
+    font-size: 24px;
+  }
+
+  /* Stats Grid */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+  }
+
+  .stat-card {
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .stat-icon {
+    font-size: 40px;
+  }
+
+  .stat-label {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.25rem;
+  }
+
+  .stat-value {
+    font-size: 2rem;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  /* Card and Filters */
+  .card {
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .filters-card {
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .search-bar {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+  }
+
+  .search-input-wrapper {
+    position: relative;
+    flex: 1;
+  }
+
+  .search-icon {
+    position: absolute;
+    left: 1rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-secondary);
+    pointer-events: none;
+  }
+
+  .search-input {
+    width: 100%;
+    padding: 0.75rem 1rem 0.75rem 3rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 0.875rem;
+  }
+
+  .search-input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  }
+
+  .form-select {
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 0.875rem;
+    min-width: 180px;
+  }
+
+  .form-select:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  }
+
+  /* Empty State */
+  .empty-state {
+    text-align: center;
+    padding: 4rem 2rem;
+  }
+
+  .empty-icon {
+    font-size: 64px;
+    color: var(--text-secondary);
+    margin-bottom: 1rem;
+  }
+
+  .empty-state h3 {
+    margin: 0 0 0.5rem 0;
+    color: var(--text-primary);
+  }
+
+  .empty-state p {
+    color: var(--text-secondary);
+    margin-bottom: 2rem;
+  }
+
+  /* Table */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  thead th {
+    background: var(--surface-secondary);
+    padding: 1rem;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  tbody td {
+    padding: 1rem;
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-primary);
+  }
+
+  tbody tr:hover {
+    background: var(--surface-secondary);
+  }
+
+  /* Badges */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+  }
+
+  .badge-success {
+    background: #d1fae5;
+    color: #059669;
+  }
+
+  .badge-warning {
+    background: #fef3c7;
+    color: #d97706;
+  }
+
+  .badge-danger {
+    background: #fee2e2;
+    color: #dc2626;
+  }
+
+  /* Buttons */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.5rem;
+    border-radius: 6px;
+    font-weight: 500;
+    border: none;
+    cursor: pointer;
+    text-decoration: none;
+    transition: all 0.2s;
+  }
+
+  .btn-primary {
+    background: var(--primary);
+    color: white;
+  }
+
+  .btn-primary:hover {
+    background: var(--primary-dark);
+  }
+
+  .btn-secondary {
+    background: white;
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+  }
+
+  .btn-secondary:hover {
+    background: var(--surface-secondary);
+  }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--text-secondary);
+    border: none;
+    cursor: pointer;
+    transition: color 0.2s;
+  }
+
+  .btn-ghost:hover {
+    color: var(--primary);
+  }
+
+  /* Utilities */
+  .flex {
+    display: flex;
+  }
+
+  .gap-2 {
+    gap: 0.5rem;
+  }
+
+  .font-mono {
+    font-family: 'Courier New', monospace;
+  }
+
+  .font-semibold {
+    font-weight: 600;
+  }
+
+  .text-sm {
+    font-size: 0.875rem;
+  }
+
+  .text-center {
+    text-align: center;
+  }
+
+  @media (max-width: 768px) {
+    .receiving-page {
+      padding: 1rem;
+    }
+
+    .page-header {
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .page-actions {
+      width: 100%;
+      flex-direction: column;
+    }
+
+    .page-actions .btn {
+      width: 100%;
+      justify-content: center;
+    }
+
+    .stats-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .search-bar {
+      flex-direction: column;
+    }
+
+    .form-select {
+      width: 100%;
+    }
+
+    table {
+      font-size: 0.875rem;
+    }
+
+    thead th,
+    tbody td {
+      padding: 0.75rem 0.5rem;
+    }
+  }
+</style>

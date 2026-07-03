@@ -1,0 +1,696 @@
+---
+/**
+ * Audit Log Page
+ * 
+ * Administrator-only page for viewing comprehensive system audit logs.
+ * Displays user actions across all system modules for security and compliance review.
+ * Supports filtering by user, action type, and date range.
+ * 
+ * Requirements: 16.6
+ * Task: 34.3
+ */
+
+import MainLayout from '../../layouts/MainLayout.astro';
+import SearchBar from '../../components/SearchBar.astro';
+import DataTable from '../../components/DataTable.astro';
+import ErrorMessage from '../../components/ErrorMessage.astro';
+import LoadingSpinner from '../../components/LoadingSpinner.astro';
+import { userManagementService } from '../../services/users/UserManagementService';
+import { db } from '../../services/firebase';
+import { collection, query, getDocs, orderBy, limit } from 'firebase/firestore';
+import type { UserAuditLog } from '../../services/users/UserManagementService';
+
+interface ComprehensiveAuditLog {
+  logId: string;
+  userId: string;
+  userEmail?: string;
+  action: string;
+  actionLabel: string;
+  details: string;
+  timestamp: Date;
+  performedBy: string;
+  performedByEmail?: string;
+  ipAddress: string;
+  source: 'user_management' | 'inventory' | 'pos' | 'receiving' | 'pricing';
+}
+
+let auditLogs: ComprehensiveAuditLog[] = [];
+let allUsers: Map<string, string> = new Map(); // userId -> email map
+let userOptions: Array<{ value: string; label: string }> = [];
+let error: string | null = null;
+let isLoading = true;
+let searchQuery = '';
+
+// Get filter params from URL
+const url = new URL(Astro.request.url);
+searchQuery = url.searchParams.get('search') || '';
+const userFilter = url.searchParams.get('user') || 'all';
+const actionFilter = url.searchParams.get('action') || 'all';
+const dateFilter = url.searchParams.get('date') || 'all';
+
+// Helper functions
+function formatActionLabel(action: string): string {
+  return action
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function formatTransactionType(type: string): string {
+  const types: Record<string, string> = {
+    'receiving': 'Receiving',
+    'sale': 'Sale',
+    'adjustment': 'Adjustment',
+    'void': 'Void',
+    'return': 'Return'
+  };
+  return types[type] || type;
+}
+
+function formatDetails(action: string, details: any): string {
+  if (!details) return '-';
+  
+  try {
+    if (action === 'user_created') {
+      return `Role: ${details.role}`;
+    } else if (action === 'user_updated' && details.changes) {
+      const changes = Object.keys(details.changes).join(', ');
+      return `Changed: ${changes}`;
+    } else if (action === 'role_assigned') {
+      return `${details.oldRole} → ${details.newRole}`;
+    } else if (action === 'user_deactivated' || action === 'user_activated') {
+      return details.reason || 'Status changed';
+    } else if (typeof details === 'string') {
+      return details;
+    } else {
+      return JSON.stringify(details).substring(0, 100);
+    }
+  } catch (e) {
+    return '-';
+  }
+}
+
+try {
+  // First, load all users for the dropdown and email lookups
+  const users = await userManagementService.listUsers({});
+  users.forEach(user => {
+    allUsers.set(user.userId, user.email);
+  });
+  
+  // Build user filter options
+  userOptions = [
+    { value: 'all', label: 'All Users' },
+    ...users.map(user => ({
+      value: user.userId,
+      label: `${user.displayName} (${user.email})`
+    }))
+  ];
+
+  // Fetch audit logs from multiple sources
+  const comprehensiveLogs: ComprehensiveAuditLog[] = [];
+
+  // 1. User Management Audit Logs
+  const userAuditLogs = await userManagementService.getAllAuditLogs(200);
+  userAuditLogs.forEach(log => {
+    comprehensiveLogs.push({
+      logId: log.logId,
+      userId: log.userId,
+      userEmail: allUsers.get(log.userId),
+      action: log.action,
+      actionLabel: formatActionLabel(log.action),
+      details: formatDetails(log.action, log.details),
+      timestamp: log.timestamp,
+      performedBy: log.performedBy,
+      performedByEmail: allUsers.get(log.performedBy),
+      ipAddress: log.details?.ipAddress || 'N/A',
+      source: 'user_management'
+    });
+  });
+
+  // 2. Inventory Transaction Audit Logs
+  try {
+    const inventoryTxQuery = query(
+      collection(db, 'inventory_transactions'),
+      orderBy('timestamp', 'desc'),
+      limit(100)
+    );
+    const inventorySnap = await getDocs(inventoryTxQuery);
+    
+    inventorySnap.forEach(doc => {
+      const data = doc.data();
+      comprehensiveLogs.push({
+        logId: doc.id,
+        userId: data.userId,
+        userEmail: allUsers.get(data.userId),
+        action: `inventory_${data.transactionType}`,
+        actionLabel: `Inventory ${formatTransactionType(data.transactionType)}`,
+        details: `SKU: ${data.sku}, Qty: ${data.quantityChange > 0 ? '+' : ''}${data.quantityChange}${data.notes ? `, ${data.notes}` : ''}`,
+        timestamp: data.timestamp.toDate(),
+        performedBy: data.userId,
+        performedByEmail: allUsers.get(data.userId),
+        ipAddress: data.ipAddress || 'N/A',
+        source: 'inventory'
+      });
+    });
+  } catch (e) {
+    console.warn('Could not fetch inventory transactions:', e);
+  }
+
+  // 3. POS Transaction Audit Logs
+  try {
+    const posQuery = query(
+      collection(db, 'pos_transactions'),
+      orderBy('timestamp', 'desc'),
+      limit(100)
+    );
+    const posSnap = await getDocs(posQuery);
+    
+    posSnap.forEach(doc => {
+      const data = doc.data();
+      const action = data.status === 'voided' ? 'pos_void' : 'pos_sale';
+      comprehensiveLogs.push({
+        logId: doc.id,
+        userId: data.userId,
+        userEmail: allUsers.get(data.userId),
+        action,
+        actionLabel: data.status === 'voided' ? 'POS Sale Voided' : 'POS Sale',
+        details: `Total: $${data.total.toFixed(2)}, Items: ${data.lineItems.length}, Payment: ${data.paymentMethod}`,
+        timestamp: data.timestamp.toDate(),
+        performedBy: data.userId,
+        performedByEmail: allUsers.get(data.userId),
+        ipAddress: data.ipAddress || 'N/A',
+        source: 'pos'
+      });
+    });
+  } catch (e) {
+    console.warn('Could not fetch POS transactions:', e);
+  }
+
+  // 4. Receiving Operations Audit Logs
+  try {
+    const receivingQuery = query(
+      collection(db, 'receiving_records'),
+      orderBy('createdAt', 'desc'),
+      limit(50)
+    );
+    const receivingSnap = await getDocs(receivingQuery);
+    
+    receivingSnap.forEach(doc => {
+      const data = doc.data();
+      comprehensiveLogs.push({
+        logId: doc.id,
+        userId: data.createdBy,
+        userEmail: allUsers.get(data.createdBy),
+        action: `receiving_${data.status}`,
+        actionLabel: `Receiving ${data.status === 'completed' ? 'Completed' : 'Created'}`,
+        details: `Type: ${data.documentType}, Items: ${data.lineItems.length}`,
+        timestamp: data.createdAt.toDate(),
+        performedBy: data.createdBy,
+        performedByEmail: allUsers.get(data.createdBy),
+        ipAddress: data.ipAddress || 'N/A',
+        source: 'receiving'
+      });
+    });
+  } catch (e) {
+    console.warn('Could not fetch receiving records:', e);
+  }
+
+  // 5. Pricing Changes Audit Logs
+  try {
+    const pricingQuery = query(
+      collection(db, 'pricing'),
+      orderBy('updatedAt', 'desc'),
+      limit(50)
+    );
+    const pricingSnap = await getDocs(pricingQuery);
+    
+    pricingSnap.forEach(doc => {
+      const data = doc.data();
+      comprehensiveLogs.push({
+        logId: doc.id,
+        userId: data.updatedBy,
+        userEmail: allUsers.get(data.updatedBy),
+        action: 'pricing_update',
+        actionLabel: 'Pricing Updated',
+        details: `SKU: ${data.sku}, Tier: ${data.priceTier}, Price: $${data.retailPrice.toFixed(2)}`,
+        timestamp: data.updatedAt.toDate(),
+        performedBy: data.updatedBy,
+        performedByEmail: allUsers.get(data.updatedBy),
+        ipAddress: data.ipAddress || 'N/A',
+        source: 'pricing'
+      });
+    });
+  } catch (e) {
+    console.warn('Could not fetch pricing records:', e);
+  }
+
+  // Sort all logs by timestamp descending (most recent first)
+  comprehensiveLogs.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+  
+  // Apply filters
+  auditLogs = comprehensiveLogs;
+  
+  // User filter (by userId or email)
+  if (userFilter && userFilter !== 'all') {
+    auditLogs = auditLogs.filter(log => log.userId === userFilter);
+  }
+  
+  // Action filter
+  if (actionFilter !== 'all') {
+    auditLogs = auditLogs.filter(log => log.action === actionFilter);
+  }
+  
+  // Date filter
+  const now = new Date();
+  if (dateFilter === 'today') {
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    auditLogs = auditLogs.filter(log => log.timestamp >= todayStart);
+  } else if (dateFilter === 'week') {
+    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    auditLogs = auditLogs.filter(log => log.timestamp >= weekAgo);
+  } else if (dateFilter === 'month') {
+    const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    auditLogs = auditLogs.filter(log => log.timestamp >= monthAgo);
+  }
+  
+  // Search filter (user email, action, or details)
+  if (searchQuery.trim()) {
+    const searchLower = searchQuery.toLowerCase().trim();
+    auditLogs = auditLogs.filter(log =>
+      log.userEmail?.toLowerCase().includes(searchLower) ||
+      log.performedByEmail?.toLowerCase().includes(searchLower) ||
+      log.actionLabel.toLowerCase().includes(searchLower) ||
+      log.details.toLowerCase().includes(searchLower) ||
+      log.userId.toLowerCase().includes(searchLower) ||
+      log.performedBy.toLowerCase().includes(searchLower)
+    );
+  }
+  
+  isLoading = false;
+} catch (err) {
+  isLoading = false;
+  error = err instanceof Error ? err.message : 'Failed to load audit log data';
+  console.error('Error loading audit logs:', err);
+}
+
+// Format date helper
+const formatDate = (date: Date) => {
+  return new Date(date).toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
+};
+
+// Format relative time helper
+const formatRelativeTime = (date: Date) => {
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffSecs = Math.floor(diffMs / 1000);
+  const diffMins = Math.floor(diffSecs / 60);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+  
+  if (diffSecs < 60) return 'Just now';
+  if (diffMins < 60) return `${diffMins} min ago`;
+  if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+  if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+  
+  return formatDate(date);
+};
+
+// Calculate summary statistics
+const totalActions = auditLogs.length;
+const uniqueUsers = new Set(auditLogs.map(log => log.userId)).size;
+const recentActions = auditLogs.filter(log => {
+  const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
+  return log.timestamp >= hourAgo;
+}).length;
+
+// Source distribution
+const sourceCounts: Record<string, number> = {};
+auditLogs.forEach(log => {
+  sourceCounts[log.source] = (sourceCounts[log.source] || 0) + 1;
+});
+
+// Define table columns
+const columns = [
+  {
+    key: 'timestamp',
+    label: 'Timestamp',
+    sortable: true,
+    align: 'left' as const,
+    format: (value: Date) => formatRelativeTime(value)
+  },
+  {
+    key: 'userEmail',
+    label: 'User',
+    sortable: true,
+    align: 'left' as const
+  },
+  {
+    key: 'actionLabel',
+    label: 'Action',
+    sortable: true,
+    align: 'left' as const
+  },
+  {
+    key: 'details',
+    label: 'Details',
+    sortable: false,
+    align: 'left' as const
+  },
+  {
+    key: 'ipAddress',
+    label: 'IP Address',
+    sortable: false,
+    align: 'left' as const
+  }
+];
+
+// Transform data for table display
+const tableData = auditLogs.map(log => ({
+  logId: log.logId,
+  timestamp: log.timestamp,
+  userEmail: log.userEmail || log.userId,
+  actionLabel: log.actionLabel,
+  details: log.details || '-',
+  ipAddress: log.ipAddress,
+  action: log.action,
+  source: log.source
+}));
+
+// Build filter options
+const actionOptions = [
+  { value: 'all', label: 'All Actions' },
+  { value: 'user_created', label: 'User Created' },
+  { value: 'user_updated', label: 'User Updated' },
+  { value: 'user_activated', label: 'User Activated' },
+  { value: 'user_deactivated', label: 'User Deactivated' },
+  { value: 'role_assigned', label: 'Role Assigned' },
+  { value: 'inventory_receiving', label: 'Inventory Receiving' },
+  { value: 'inventory_sale', label: 'Inventory Sale' },
+  { value: 'inventory_adjustment', label: 'Inventory Adjustment' },
+  { value: 'inventory_void', label: 'Inventory Void' },
+  { value: 'pos_sale', label: 'POS Sale' },
+  { value: 'pos_void', label: 'POS Void' },
+  { value: 'receiving_pending', label: 'Receiving Created' },
+  { value: 'receiving_completed', label: 'Receiving Completed' },
+  { value: 'pricing_update', label: 'Pricing Update' }
+];
+
+const dateOptions = [
+  { value: 'all', label: 'All Time' },
+  { value: 'today', label: 'Today' },
+  { value: 'week', label: 'Last 7 Days' },
+  { value: 'month', label: 'Last 30 Days' }
+];
+
+const filters = [
+  {
+    key: 'user',
+    label: 'User',
+    options: userOptions
+  },
+  {
+    key: 'action',
+    label: 'Action Type',
+    options: actionOptions
+  },
+  {
+    key: 'date',
+    label: 'Date Range',
+    options: dateOptions
+  }
+];
+---
+
+<MainLayout title="Audit Log" requireAuth={true} requiredRole="Administrator">
+  <!-- Page Header -->
+  <div class="page-header mb-6">
+    <div class="flex items-center justify-between">
+      <div>
+        <h1 class="text-3xl font-bold text-gray-900">📋 Audit Log</h1>
+        <p class="text-gray-600 mt-1">Security and compliance review of user actions</p>
+      </div>
+      <div class="flex items-center gap-3">
+        <button 
+          onclick="window.print()"
+          class="button bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700 transition-colors font-medium inline-flex items-center gap-2"
+          title="Print audit log"
+        >
+          <span>🖨️</span>
+          <span>Print</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Summary Cards -->
+  <div class="summary-cards grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+    <div class="card bg-white rounded-lg shadow-md p-4 border-l-4 border-blue-500">
+      <div class="text-sm text-gray-600 mb-1">Total Actions</div>
+      <div class="text-2xl font-bold text-gray-900">{totalActions}</div>
+      <div class="text-xs text-gray-500 mt-1">Displayed actions</div>
+    </div>
+    
+    <div class="card bg-white rounded-lg shadow-md p-4 border-l-4 border-green-500">
+      <div class="text-sm text-gray-600 mb-1">Unique Users</div>
+      <div class="text-2xl font-bold text-green-700">{uniqueUsers}</div>
+      <div class="text-xs text-gray-500 mt-1">Users with actions</div>
+    </div>
+    
+    <div class="card bg-white rounded-lg shadow-md p-4 border-l-4 border-purple-500">
+      <div class="text-sm text-gray-600 mb-1">Recent Activity</div>
+      <div class="text-2xl font-bold text-purple-700">{recentActions}</div>
+      <div class="text-xs text-gray-500 mt-1">Actions in last hour</div>
+    </div>
+
+    <div class="card bg-white rounded-lg shadow-md p-4 border-l-4 border-orange-500">
+      <div class="text-sm text-gray-600 mb-1">Data Sources</div>
+      <div class="text-2xl font-bold text-orange-700">{Object.keys(sourceCounts).length}</div>
+      <div class="text-xs text-gray-500 mt-1">System modules tracked</div>
+    </div>
+  </div>
+
+  <!-- Search Bar with Filters -->
+  <div class="mb-6">
+    <SearchBar 
+      placeholder="Search by user, action, or details..."
+      name="search"
+      value={searchQuery}
+      filters={filters}
+    />
+  </div>
+
+  <!-- Results Summary -->
+  {!isLoading && !error && (
+    <div class="results-summary mb-4 text-sm text-gray-600">
+      {searchQuery || actionFilter !== 'all' || dateFilter !== 'all' || userFilter !== 'all' ? (
+        <p>Found <strong>{auditLogs.length}</strong> {auditLogs.length === 1 ? 'action' : 'actions'} matching your filters</p>
+      ) : (
+        <p>Showing <strong>{auditLogs.length}</strong> recent {auditLogs.length === 1 ? 'action' : 'actions'}</p>
+      )}
+    </div>
+  )}
+
+  <!-- Error Display -->
+  {error && (
+    <ErrorMessage 
+      message={error}
+      type="error"
+      dismissable={false}
+    />
+  )}
+
+  <!-- Loading State -->
+  {isLoading && (
+    <LoadingSpinner 
+      size="lg"
+      message="Loading audit logs from all system modules..."
+    />
+  )}
+
+  <!-- Audit Log Table -->
+  {!isLoading && !error && (
+    <div class="card bg-white rounded-lg shadow-md p-6">
+      <DataTable 
+        columns={columns}
+        data={tableData}
+        keyField="logId"
+        striped={true}
+        hoverable={true}
+        bordered={true}
+        emptyMessage={searchQuery ? `No audit logs found matching "${searchQuery}"` : "No audit logs available."}
+      />
+    </div>
+  )}
+
+  <!-- Client-side enhancements -->
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const table = document.querySelector('.data-table');
+      if (!table) return;
+
+      // Style action column (3rd column - index 2)
+      const actionCells = table.querySelectorAll('tbody tr td:nth-child(3)');
+      actionCells.forEach(cell => {
+        const actionText = cell.textContent?.trim();
+        if (!actionText) return;
+        
+        const actionColors: Record<string, string> = {
+          'User Created': 'bg-green-100 text-green-800 border-green-300',
+          'User Updated': 'bg-blue-100 text-blue-800 border-blue-300',
+          'User Activated': 'bg-emerald-100 text-emerald-800 border-emerald-300',
+          'User Deactivated': 'bg-red-100 text-red-800 border-red-300',
+          'Role Assigned': 'bg-purple-100 text-purple-800 border-purple-300',
+          'Inventory Receiving': 'bg-teal-100 text-teal-800 border-teal-300',
+          'Inventory Sale': 'bg-indigo-100 text-indigo-800 border-indigo-300',
+          'Inventory Adjustment': 'bg-amber-100 text-amber-800 border-amber-300',
+          'Inventory Void': 'bg-orange-100 text-orange-800 border-orange-300',
+          'POS Sale': 'bg-cyan-100 text-cyan-800 border-cyan-300',
+          'POS Sale Voided': 'bg-red-100 text-red-800 border-red-300',
+          'Receiving Created': 'bg-lime-100 text-lime-800 border-lime-300',
+          'Receiving Completed': 'bg-green-100 text-green-800 border-green-300',
+          'Pricing Updated': 'bg-violet-100 text-violet-800 border-violet-300'
+        };
+        
+        const colorClass = actionColors[actionText] || 'bg-gray-100 text-gray-800 border-gray-300';
+        
+        cell.innerHTML = `
+          <span class="action-badge px-3 py-1 rounded-full text-xs font-semibold border ${colorClass}">
+            ${actionText}
+          </span>
+        `;
+      });
+
+      // Truncate long details with tooltip
+      const detailsCells = table.querySelectorAll('tbody tr td:nth-child(4)');
+      detailsCells.forEach(cell => {
+        const text = cell.textContent?.trim();
+        if (text && text.length > 60) {
+          const truncated = text.substring(0, 60) + '...';
+          cell.innerHTML = `
+            <span class="truncated-details cursor-help" title="${text.replace(/"/g, '&quot;')}">
+              ${truncated}
+            </span>
+          `;
+        }
+      });
+
+      // Add hover effect for better UX
+      const rows = table.querySelectorAll<HTMLTableRowElement>('tbody tr');
+      rows.forEach(row => {
+        row.addEventListener('mouseenter', () => {
+          row.style.backgroundColor = '#eff6ff';
+        });
+        
+        row.addEventListener('mouseleave', () => {
+          row.style.backgroundColor = '';
+        });
+      });
+    });
+  </script>
+
+  <style>
+    .page-header {
+      border-bottom: 2px solid var(--color-border);
+      padding-bottom: 1rem;
+    }
+
+    .summary-cards {
+      animation: slideUp 0.3s ease-out;
+    }
+
+    @keyframes slideUp {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .action-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      white-space: nowrap;
+    }
+
+    .truncated-details {
+      display: inline-block;
+    }
+
+    .results-summary {
+      padding: 0.5rem 0;
+    }
+
+    /* Print styles */
+    @media print {
+      .page-header .button,
+      .search-bar-container,
+      .summary-cards {
+        display: none;
+      }
+
+      .data-table {
+        font-size: 10pt;
+      }
+
+      .action-badge {
+        border: 1px solid #000 !important;
+        background: transparent !important;
+        color: #000 !important;
+      }
+    }
+
+    /* Responsive adjustments */
+    @media (max-width: 768px) {
+      .page-header .flex {
+        flex-direction: column;
+        gap: 1rem;
+        align-items: flex-start;
+      }
+
+      .page-header .button {
+        width: 100%;
+        justify-content: center;
+      }
+
+      .summary-cards {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* Table column widths for better readability */
+    :global(.data-table th:nth-child(1)),
+    :global(.data-table td:nth-child(1)) {
+      width: 16%;
+    }
+
+    :global(.data-table th:nth-child(2)),
+    :global(.data-table td:nth-child(2)) {
+      width: 18%;
+    }
+
+    :global(.data-table th:nth-child(3)),
+    :global(.data-table td:nth-child(3)) {
+      width: 18%;
+    }
+
+    :global(.data-table th:nth-child(4)),
+    :global(.data-table td:nth-child(4)) {
+      width: 33%;
+    }
+
+    :global(.data-table th:nth-child(5)),
+    :global(.data-table td:nth-child(5)) {
+      width: 15%;
+    }
+  </style>
+</MainLayout>

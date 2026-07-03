@@ -1,0 +1,166 @@
+---
+/**
+ * Simple Test Dashboard - CAPSTONE Demo
+ * No Firebase, no authentication checks, just pure HTML
+ */
+
+const locals = Astro.locals;
+---
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard Test | PRO SYNAPSE</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+    }
+    
+    .container {
+      background: white;
+      border-radius: 20px;
+      padding: 3rem;
+      max-width: 800px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    }
+    
+    h1 {
+      font-size: 2.5rem;
+      color: #2563eb;
+      margin-bottom: 1rem;
+    }
+    
+    .success {
+      background: #10b981;
+      color: white;
+      padding: 1rem 2rem;
+      border-radius: 10px;
+      font-size: 1.5rem;
+      margin: 2rem 0;
+      text-align: center;
+    }
+    
+    .info {
+      background: #f3f4f6;
+      padding: 1.5rem;
+      border-radius: 10px;
+      margin: 1rem 0;
+    }
+    
+    .info h3 {
+      color: #374151;
+      margin-bottom: 0.5rem;
+    }
+    
+    .info p {
+      color: #6b7280;
+      line-height: 1.6;
+    }
+    
+    .links {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+      margin-top: 2rem;
+    }
+    
+    a {
+      display: block;
+      background: #2563eb;
+      color: white;
+      padding: 1rem;
+      border-radius: 10px;
+      text-decoration: none;
+      text-align: center;
+      font-weight: 600;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    
+    a:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 20px rgba(37, 99, 235, 0.3);
+    }
+    
+    .code {
+      background: #1f2937;
+      color: #10b981;
+      padding: 1rem;
+      border-radius: 8px;
+      font-family: 'Courier New', monospace;
+      font-size: 0.875rem;
+      margin: 1rem 0;
+      overflow-x: auto;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🎉 SUCCESS!</h1>
+    
+    <div class="success">
+      ✅ Authentication Bypass Working!
+    </div>
+    
+    <div class="info">
+      <h3>📊 Session Information:</h3>
+      <div class="code">
+        User ID: {locals.userId || 'Not set'}<br/>
+        Email: {locals.userEmail || 'Not set'}<br/>
+        Role: {locals.userRole || 'Not set'}<br/>
+        Session: {locals.session ? '✅ Active' : '❌ Not found'}
+      </div>
+    </div>
+    
+    <div class="info">
+      <h3>🎓 CAPSTONE Demo Mode:</h3>
+      <p>
+        You've successfully bypassed authentication! The middleware is now creating 
+        automatic Administrator sessions for all requests. No login required.
+      </p>
+    </div>
+    
+    <div class="info">
+      <h3>✅ What This Means:</h3>
+      <p>
+        • No redirects to login page<br/>
+        • Full Administrator access<br/>
+        • All pages should be accessible<br/>
+        • Ready for CAPSTONE presentation
+      </p>
+    </div>
+    
+    <div class="links">
+      <a href="/">📊 Main Dashboard</a>
+      <a href="/demo-dashboard">🎯 Demo Dashboard</a>
+      <a href="/suppliers">🏢 Suppliers</a>
+      <a href="/products">📦 Products</a>
+      <a href="/inventory">📊 Inventory</a>
+      <a href="/pos">💳 POS</a>
+    </div>
+    
+    <div class="info" style="margin-top: 2rem;">
+      <h3>🔍 If You Still Have Issues:</h3>
+      <p>
+        1. Clear ALL browser data (Ctrl+Shift+Delete)<br/>
+        2. Use Incognito/Private window<br/>
+        3. Try a different browser<br/>
+        4. Check browser console (F12) for errors
+      </p>
+    </div>
+  </div>
+</body>
+</html>

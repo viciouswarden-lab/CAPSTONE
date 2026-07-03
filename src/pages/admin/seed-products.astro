@@ -1,0 +1,209 @@
+---
+/**
+ * Seed Products Utility Page
+ * 
+ * Quick utility to add sample products to the products collection
+ * for testing pricelist matching functionality.
+ */
+
+import ModernLayout from '../../layouts/ModernLayout.astro';
+---
+
+<ModernLayout title="Seed Sample Products">
+  <div style="max-width: 800px; margin: 0 auto; padding: 2rem;">
+    <div class="card">
+      <div class="card-header">
+        <h1>Seed Sample Products</h1>
+      </div>
+      <div class="card-body">
+        <p style="margin-bottom: 1.5rem; color: var(--text-secondary);">
+          This utility will add 30 sample products to your products collection for testing the pricelist matching feature.
+          These products will match with items in the sample CSV files.
+        </p>
+
+        <div id="status-container" class="hidden"></div>
+
+        <div style="display: flex; gap: 1rem;">
+          <button id="seed-btn" class="btn btn-primary">
+            <span class="material-symbols-outlined">database</span>
+            Seed Products
+          </button>
+          <button id="clear-btn" class="btn btn-secondary">
+            <span class="material-symbols-outlined">delete</span>
+            Clear All Products
+          </button>
+          <a href="/products" class="btn btn-secondary">
+            <span class="material-symbols-outlined">arrow_back</span>
+            Back to Products
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top: 2rem;">
+      <div class="card-header">
+        <h2>Sample Products to be Created</h2>
+      </div>
+      <div class="card-body">
+        <ul style="list-style: none; padding: 0; display: grid; gap: 0.5rem;">
+          <li>✓ 10 Hand Tools (Hammers, Screwdrivers, Wrenches, Pliers, etc.)</li>
+          <li>✓ 5 Power Tools (Drills, Saws, Grinders, Sanders)</li>
+          <li>✓ 5 Electrical Supplies (Wire, Outlets, Switches, Breakers)</li>
+          <li>✓ 5 Plumbing Supplies (Pipes, Fittings, Faucets, Valves)</li>
+          <li>✓ 3 Paint Supplies (Latex Paint, Brushes, Rollers)</li>
+          <li>✓ 2 Safety Equipment (Gloves, Glasses)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</ModernLayout>
+
+<script>
+  import { db } from '../../services/firebase';
+  import { collection, addDoc, getDocs, deleteDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
+
+  const seedBtn = document.getElementById('seed-btn') as HTMLButtonElement;
+  const clearBtn = document.getElementById('clear-btn') as HTMLButtonElement;
+  const statusContainer = document.getElementById('status-container')!;
+
+  const sampleProducts = [
+    // Hand Tools (first one will get supplier mapping added dynamically)
+    { sku: 'HAMMER-16OZ', description: 'Heavy Duty Hammer 16oz', category: 'Hand Tools', uom: 'PCS', reorderPoint: 10, supplierMappings: [] },
+    { sku: 'HAMMER-20OZ', description: 'Claw Hammer 20oz', category: 'Hand Tools', uom: 'PCS', reorderPoint: 10, supplierMappings: [] },
+    { sku: 'SCREW-SET-10', description: 'Screwdriver Set 10-Piece', category: 'Hand Tools', uom: 'SET', reorderPoint: 5, supplierMappings: [] },
+    { sku: 'WRENCH-8IN', description: 'Adjustable Wrench 8 inch', category: 'Hand Tools', uom: 'PCS', reorderPoint: 8, supplierMappings: [] },
+    { sku: 'WRENCH-SET-40', description: 'Socket Wrench Set 40-Piece', category: 'Hand Tools', uom: 'SET', reorderPoint: 3, supplierMappings: [] },
+    { sku: 'PLIERS-8IN', description: 'Long Nose Pliers 8 inch', category: 'Hand Tools', uom: 'PCS', reorderPoint: 10, supplierMappings: [] },
+    { sku: 'PLIERS-CUT-6', description: 'Cutting Pliers 6 inch', category: 'Hand Tools', uom: 'PCS', reorderPoint: 10, supplierMappings: [] },
+    { sku: 'TAPE-5M', description: 'Measuring Tape 5M', category: 'Hand Tools', uom: 'PCS', reorderPoint: 15, supplierMappings: [] },
+    { sku: 'LEVEL-24IN', description: 'Spirit Level 24 inch', category: 'Hand Tools', uom: 'PCS', reorderPoint: 5, supplierMappings: [] },
+    { sku: 'LEVEL-9IN', description: 'Torpedo Level 9 inch', category: 'Hand Tools', uom: 'PCS', reorderPoint: 8, supplierMappings: [] },
+
+    // Power Tools
+    { sku: 'DRILL-18V', description: 'Cordless Power Drill 18V', category: 'Power Tools', uom: 'SET', reorderPoint: 3, supplierMappings: [] },
+    { sku: 'DRILL-HAM-600W', description: 'Hammer Drill 600W', category: 'Power Tools', uom: 'PCS', reorderPoint: 2, supplierMappings: [] },
+    { sku: 'SAW-CIRC-7IN', description: 'Circular Saw 7.25 inch', category: 'Power Tools', uom: 'PCS', reorderPoint: 2, supplierMappings: [] },
+    { sku: 'GRINDER-4IN', description: 'Angle Grinder 4 inch', category: 'Power Tools', uom: 'PCS', reorderPoint: 3, supplierMappings: [] },
+    { sku: 'SANDER-ORB', description: 'Orbital Sander 240W', category: 'Power Tools', uom: 'PCS', reorderPoint: 2, supplierMappings: [] },
+
+    // Electrical
+    { sku: 'WIRE-2.5MM', description: 'Electrical Wire 2.5mm THHN', category: 'Electrical', uom: 'ROLL', reorderPoint: 20, supplierMappings: [] },
+    { sku: 'OUTLET-2G', description: 'Wall Outlet 2-Gang Universal', category: 'Electrical', uom: 'PCS', reorderPoint: 50, supplierMappings: [] },
+    { sku: 'SWITCH-1G', description: 'Light Switch Single Gang', category: 'Electrical', uom: 'PCS', reorderPoint: 50, supplierMappings: [] },
+    { sku: 'BREAKER-20A', description: 'Circuit Breaker 20A', category: 'Electrical', uom: 'PCS', reorderPoint: 20, supplierMappings: [] },
+    { sku: 'CONDUIT-PVC-20', description: 'Conduit PVC 20mm', category: 'Electrical', uom: 'PCS', reorderPoint: 30, supplierMappings: [] },
+
+    // Plumbing
+    { sku: 'PIPE-PVC-1/2', description: 'PVC Pipe 1/2 inch', category: 'Plumbing', uom: 'PCS', reorderPoint: 40, supplierMappings: [] },
+    { sku: 'ELBOW-PVC-1/2', description: 'PVC Elbow 1/2 inch 90 Degree', category: 'Plumbing', uom: 'PCS', reorderPoint: 100, supplierMappings: [] },
+    { sku: 'FAUCET-KITCHEN', description: 'Faucet Kitchen Single Handle', category: 'Plumbing', uom: 'PCS', reorderPoint: 5, supplierMappings: [] },
+    { sku: 'DRAIN-FLOOR-4', description: 'Floor Drain Stainless Steel 4 inch', category: 'Plumbing', uom: 'PCS', reorderPoint: 10, supplierMappings: [] },
+    { sku: 'VALVE-1/2', description: 'Ball Valve 1/2 inch Brass', category: 'Plumbing', uom: 'PCS', reorderPoint: 20, supplierMappings: [] },
+
+    // Paint
+    { sku: 'PAINT-LAT-WHT', description: 'Latex Paint White 4L', category: 'Paint', uom: 'GAL', reorderPoint: 10, supplierMappings: [] },
+    { sku: 'BRUSH-2IN', description: 'Paint Brush 2 inch', category: 'Paint', uom: 'PCS', reorderPoint: 30, supplierMappings: [] },
+    { sku: 'ROLLER-9IN', description: 'Paint Roller 9 inch', category: 'Paint', uom: 'SET', reorderPoint: 15, supplierMappings: [] },
+
+    // Safety
+    { sku: 'GLOVES-LEATHER-L', description: 'Safety Gloves Leather Palm', category: 'Safety', uom: 'PAIR', reorderPoint: 50, supplierMappings: [] },
+    { sku: 'GLASSES-CLEAR', description: 'Safety Glasses Clear', category: 'Safety', uom: 'PCS', reorderPoint: 40, supplierMappings: [] },
+  ];
+
+  function showStatus(message: string, type: 'success' | 'error' | 'info') {
+    statusContainer.innerHTML = `
+      <div class="alert alert-${type === 'success' ? 'success' : type === 'error' ? 'danger' : 'info'}" style="margin-bottom: 1rem;">
+        <span class="material-symbols-outlined">${type === 'success' ? 'check_circle' : type === 'error' ? 'error' : 'info'}</span>
+        <div>${message}</div>
+      </div>
+    `;
+    statusContainer.classList.remove('hidden');
+  }
+
+  seedBtn.addEventListener('click', async () => {
+    if (!confirm(`This will add ${sampleProducts.length} sample products to your database. Continue?`)) {
+      return;
+    }
+
+    seedBtn.disabled = true;
+    showStatus('Creating products...', 'info');
+
+    try {
+      // First, get the first active supplier to create a mapping
+      const suppliersRef = collection(db!, 'suppliers');
+      const suppliersSnapshot = await getDocs(suppliersRef);
+      let firstSupplierId: string | null = null;
+      
+      if (!suppliersSnapshot.empty) {
+        const firstSupplier = suppliersSnapshot.docs[0];
+        firstSupplierId = firstSupplier.id;
+        console.log(`Found supplier: ${firstSupplierId} (${firstSupplier.data().name})`);
+      }
+
+      const productsRef = collection(db!, 'products');
+      let count = 0;
+
+      for (const product of sampleProducts) {
+        // Add supplier mapping to first product if we have a supplier
+        const productData = { ...product };
+        if (count === 0 && firstSupplierId) {
+          productData.supplierMappings = [{
+            supplierId: firstSupplierId,
+            supplierCode: 'HW-HAM-001',
+            lastCost: 285.00,
+            lastCostDate: Timestamp.now()
+          }];
+        }
+
+        await addDoc(productsRef, {
+          ...productData,
+          isActive: true,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          createdBy: 'seed-script'
+        });
+        count++;
+      }
+
+      showStatus(`Successfully created ${count} products!${firstSupplierId ? ' First product has supplier mapping for exact matching demo.' : ''}`, 'success');
+      seedBtn.disabled = false;
+    } catch (error) {
+      console.error('Error seeding products:', error);
+      showStatus(`Error: ${error instanceof Error ? error.message : 'Failed to create products'}`, 'error');
+      seedBtn.disabled = false;
+    }
+  });
+
+  clearBtn.addEventListener('click', async () => {
+    if (!confirm('This will DELETE ALL products from your database. Are you sure?')) {
+      return;
+    }
+
+    clearBtn.disabled = true;
+    showStatus('Deleting products...', 'info');
+
+    try {
+      const productsRef = collection(db!, 'products');
+      const snapshot = await getDocs(productsRef);
+      
+      let count = 0;
+      for (const doc of snapshot.docs) {
+        await deleteDoc(doc.ref);
+        count++;
+      }
+
+      showStatus(`Successfully deleted ${count} products!`, 'success');
+      clearBtn.disabled = false;
+    } catch (error) {
+      console.error('Error clearing products:', error);
+      showStatus(`Error: ${error instanceof Error ? error.message : 'Failed to delete products'}`, 'error');
+      clearBtn.disabled = false;
+    }
+  });
+</script>
+
+<style>
+  .hidden {
+    display: none !important;
+  }
+</style>

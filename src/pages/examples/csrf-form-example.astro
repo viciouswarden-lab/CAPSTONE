@@ -1,0 +1,194 @@
+---
+/**
+ * CSRF Protection Example - Form Submission
+ * 
+ * This example demonstrates how to include CSRF tokens in forms
+ * for protection against Cross-Site Request Forgery attacks.
+ * 
+ * Requirements: 19.4
+ */
+
+import MainLayout from '../../layouts/MainLayout.astro';
+import { getCSRF } from '../../utils/csrf';
+
+// Get CSRF token for this request
+const csrfToken = getCSRF(Astro.cookies);
+
+// Also available from locals (set by middleware)
+// const csrfToken = Astro.locals.csrfToken;
+
+// Handle form submission (this would be in an API route in practice)
+if (Astro.request.method === 'POST') {
+  // CSRF validation happens automatically in middleware
+  // If we reach here, the CSRF token was valid
+  
+  try {
+    const formData = await Astro.request.formData();
+    const name = formData.get('name');
+    const email = formData.get('email');
+    
+    // Process the form data...
+    console.log('Form submitted:', { name, email });
+    
+    // Redirect or show success
+  } catch (error) {
+    console.error('Form processing error:', error);
+  }
+}
+---
+
+<MainLayout title="CSRF Protection Example">
+  <div class="container mx-auto px-4 py-8">
+    <h1 class="text-3xl font-bold mb-6">CSRF Protection Example</h1>
+    
+    <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+      <h2 class="text-lg font-semibold mb-2">How CSRF Protection Works</h2>
+      <p class="text-sm text-gray-700">
+        All forms that perform state-changing operations (POST, PUT, DELETE, PATCH)
+        must include a CSRF token. The middleware automatically validates the token
+        before allowing the request to proceed.
+      </p>
+    </div>
+
+    <!-- Example 1: Basic Form with Hidden CSRF Token -->
+    <div class="mb-8">
+      <h2 class="text-2xl font-semibold mb-4">Example 1: Basic Form</h2>
+      <form method="POST" class="bg-white shadow-md rounded px-8 pt-6 pb-8 mb-4">
+        <!-- CSRF Token - REQUIRED for all state-changing operations -->
+        <input type="hidden" name="csrf_token" value={csrfToken} />
+        
+        <div class="mb-4">
+          <label class="block text-gray-700 text-sm font-bold mb-2" for="name">
+            Name
+          </label>
+          <input
+            class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+            id="name"
+            name="name"
+            type="text"
+            placeholder="Enter your name"
+            required
+          />
+        </div>
+        
+        <div class="mb-6">
+          <label class="block text-gray-700 text-sm font-bold mb-2" for="email">
+            Email
+          </label>
+          <input
+            class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+            id="email"
+            name="email"
+            type="email"
+            placeholder="Enter your email"
+            required
+          />
+        </div>
+        
+        <div class="flex items-center justify-between">
+          <button
+            class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline"
+            type="submit"
+          >
+            Submit
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Example 2: AJAX Request with CSRF Token -->
+    <div class="mb-8">
+      <h2 class="text-2xl font-semibold mb-4">Example 2: AJAX Request</h2>
+      <div class="bg-white shadow-md rounded px-8 pt-6 pb-8 mb-4">
+        <p class="mb-4 text-gray-700">
+          For AJAX requests, include the CSRF token in the X-CSRF-Token header:
+        </p>
+        
+        <button
+          id="ajax-submit"
+          class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded"
+          data-csrf-token={csrfToken}
+        >
+          Submit via AJAX
+        </button>
+        
+        <div id="ajax-result" class="mt-4 p-4 rounded"></div>
+      </div>
+    </div>
+
+    <!-- Code Examples -->
+    <div class="bg-gray-50 rounded-lg p-6">
+      <h2 class="text-2xl font-semibold mb-4">Code Examples</h2>
+      
+      <div class="mb-6">
+        <h3 class="text-lg font-semibold mb-2">Astro (Server-Side)</h3>
+        <pre class="bg-gray-800 text-gray-100 p-4 rounded overflow-x-auto"><code>{`---
+import { getCSRF } from '@/utils/csrf';
+
+// Get CSRF token
+const csrfToken = getCSRF(Astro.cookies);
+
+// Or use from locals (set by middleware)
+const csrfToken = Astro.locals.csrfToken;
+---
+
+<form method="POST">
+  <input type="hidden" name="csrf_token" value={csrfToken} />
+  <!-- form fields -->
+</form>`}</code></pre>
+      </div>
+      
+      <div>
+        <h3 class="text-lg font-semibold mb-2">JavaScript (Client-Side)</h3>
+        <pre class="bg-gray-800 text-gray-100 p-4 rounded overflow-x-auto"><code>{`// Get CSRF token from data attribute
+const csrfToken = document.getElementById('app').dataset.csrfToken;
+
+// Include in fetch request headers
+fetch('/api/endpoint', {
+  method: 'POST',
+  headers: {
+    'X-CSRF-Token': csrfToken,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify(data)
+});`}</code></pre>
+      </div>
+    </div>
+  </div>
+</MainLayout>
+
+<script>
+  // Example AJAX submission with CSRF token
+  document.getElementById('ajax-submit')?.addEventListener('click', async (e) => {
+    const button = e.target as HTMLButtonElement;
+    const csrfToken = button.dataset.csrfToken;
+    const resultDiv = document.getElementById('ajax-result');
+    
+    if (!resultDiv) return;
+    
+    try {
+      const response = await fetch('/api/example', {
+        method: 'POST',
+        headers: {
+          'X-CSRF-Token': csrfToken!,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          message: 'Hello from AJAX'
+        })
+      });
+      
+      if (response.ok) {
+        resultDiv.className = 'mt-4 p-4 rounded bg-green-100 border border-green-400 text-green-700';
+        resultDiv.textContent = 'Success! CSRF token validated.';
+      } else {
+        const error = await response.json();
+        resultDiv.className = 'mt-4 p-4 rounded bg-red-100 border border-red-400 text-red-700';
+        resultDiv.textContent = `Error: ${error.error?.message || 'Request failed'}`;
+      }
+    } catch (error) {
+      resultDiv.className = 'mt-4 p-4 rounded bg-red-100 border border-red-400 text-red-700';
+      resultDiv.textContent = `Error: ${error}`;
+    }
+  });
+</script>

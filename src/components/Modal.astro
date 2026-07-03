@@ -1,0 +1,369 @@
+---
+/**
+ * Modal Component
+ * 
+ * Displays dialogs, confirmations, and modal overlays for user interactions.
+ * Used for confirmation dialogs, forms, alerts, and detailed views.
+ * 
+ * Props:
+ * - title: Modal title text
+ * - size: 'sm' | 'md' | 'lg' | 'xl' - modal width (default: 'md')
+ * - closable: Whether the modal can be closed by clicking overlay or close button (default: true)
+ * - showFooter: Whether to show the footer section (default: true)
+ * - type: 'default' | 'danger' | 'success' | 'warning' - styling variant (default: 'default')
+ */
+
+interface Props {
+  title: string;
+  size?: 'sm' | 'md' | 'lg' | 'xl';
+  closable?: boolean;
+  showFooter?: boolean;
+  type?: 'default' | 'danger' | 'success' | 'warning';
+}
+
+const { 
+  title,
+  size = 'md',
+  closable = true,
+  showFooter = true,
+  type = 'default'
+} = Astro.props;
+
+const sizeClasses = {
+  sm: 'max-w-sm',
+  md: 'max-w-md',
+  lg: 'max-w-lg',
+  xl: 'max-w-xl'
+};
+
+const typeStyles = {
+  default: {
+    headerBg: 'bg-gray-100',
+    headerText: 'text-gray-800',
+    borderColor: 'border-gray-300'
+  },
+  danger: {
+    headerBg: 'bg-red-100',
+    headerText: 'text-red-800',
+    borderColor: 'border-red-300'
+  },
+  success: {
+    headerBg: 'bg-green-100',
+    headerText: 'text-green-800',
+    borderColor: 'border-green-300'
+  },
+  warning: {
+    headerBg: 'bg-yellow-100',
+    headerText: 'text-yellow-800',
+    borderColor: 'border-yellow-300'
+  }
+};
+
+const modalClass = sizeClasses[size];
+const styles = typeStyles[type];
+---
+
+<!-- Modal Backdrop -->
+<div 
+  class="modal-backdrop fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 hidden"
+  data-closable={closable ? 'true' : 'false'}
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="modal-title"
+>
+  <!-- Modal Container -->
+  <div 
+    class={`modal-container ${modalClass} w-full bg-white rounded-lg shadow-xl transform transition-all`}
+    role="document"
+  >
+    <!-- Modal Header -->
+    <div class={`modal-header ${styles.headerBg} ${styles.headerText} ${styles.borderColor} px-6 py-4 border-b flex items-center justify-between rounded-t-lg`}>
+      <h2 id="modal-title" class="text-xl font-semibold">
+        {title}
+      </h2>
+      {closable && (
+        <button
+          class="modal-close-btn text-gray-500 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded p-1"
+          aria-label="Close modal"
+          type="button"
+        >
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      )}
+    </div>
+
+    <!-- Modal Body -->
+    <div class="modal-body px-6 py-4 max-h-[60vh] overflow-y-auto">
+      <slot />
+    </div>
+
+    <!-- Modal Footer -->
+    {showFooter && (
+      <div class={`modal-footer px-6 py-4 border-t ${styles.borderColor} flex items-center justify-end gap-3 rounded-b-lg bg-gray-50`}>
+        <slot name="footer">
+          {/* Default footer buttons */}
+          {closable && (
+            <button
+              type="button"
+              class="btn-cancel px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
+            >
+              Cancel
+            </button>
+          )}
+          <button
+            type="button"
+            class={`btn-confirm px-4 py-2 text-sm font-medium text-white rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 transition-colors ${
+              type === 'danger' 
+                ? 'bg-red-600 hover:bg-red-700 focus:ring-red-500'
+                : 'bg-blue-600 hover:bg-blue-700 focus:ring-blue-500'
+            }`}
+          >
+            {type === 'danger' ? 'Delete' : 'Confirm'}
+          </button>
+        </slot>
+      </div>
+    )}
+  </div>
+</div>
+
+<style>
+  .modal-backdrop {
+    animation: fadeIn 0.2s ease-out;
+  }
+
+  .modal-backdrop.hidden {
+    display: none !important;
+  }
+
+  .modal-container {
+    animation: slideUp 0.3s ease-out;
+    max-width: 90vw;
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes slideUp {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* Smooth scrolling for modal body */
+  .modal-body {
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e0 #f7fafc;
+  }
+
+  .modal-body::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .modal-body::-webkit-scrollbar-track {
+    background: #f7fafc;
+  }
+
+  .modal-body::-webkit-scrollbar-thumb {
+    background-color: #cbd5e0;
+    border-radius: 4px;
+  }
+
+  .modal-body::-webkit-scrollbar-thumb:hover {
+    background-color: #a0aec0;
+  }
+
+  /* Focus trap styling */
+  .modal-backdrop:focus-within .modal-container {
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  }
+
+  /* Prevent body scroll when modal is open */
+  body.modal-open {
+    overflow: hidden;
+  }
+
+  @media (max-width: 640px) {
+    .modal-container {
+      max-width: 95vw;
+      margin: 1rem;
+    }
+
+    .modal-body {
+      max-height: 50vh;
+    }
+
+    .modal-header,
+    .modal-body,
+    .modal-footer {
+      padding-left: 1rem;
+      padding-right: 1rem;
+    }
+  }
+</style>
+
+<script>
+  /**
+   * Modal functionality with programmatic API
+   * 
+   * Usage:
+   * - Show modal: modal.showModal()
+   * - Hide modal: modal.hideModal()
+   * - Listen to events: modal.addEventListener('confirm', handler)
+   * 
+   * Events:
+   * - confirm: Fired when confirm button is clicked
+   * - cancel: Fired when cancel/close button is clicked or overlay is clicked
+   * - show: Fired when modal is shown
+   * - hide: Fired when modal is hidden
+   */
+  
+  class ModalController {
+    private backdrop: HTMLElement;
+    private closeButtons: HTMLElement[];
+    private cancelButtons: HTMLElement[];
+    private confirmButtons: HTMLElement[];
+    private closable: boolean;
+
+    constructor(backdrop: HTMLElement) {
+      this.backdrop = backdrop;
+      this.closable = backdrop.dataset.closable === 'true';
+      
+      // Get all interactive elements
+      this.closeButtons = Array.from(backdrop.querySelectorAll('.modal-close-btn'));
+      this.cancelButtons = Array.from(backdrop.querySelectorAll('.btn-cancel'));
+      this.confirmButtons = Array.from(backdrop.querySelectorAll('.btn-confirm'));
+      
+      this.bindEvents();
+    }
+
+    private bindEvents() {
+      // Close button handlers
+      this.closeButtons.forEach(btn => {
+        btn.addEventListener('click', () => this.handleCancel());
+      });
+
+      // Cancel button handlers
+      this.cancelButtons.forEach(btn => {
+        btn.addEventListener('click', () => this.handleCancel());
+      });
+
+      // Confirm button handlers
+      this.confirmButtons.forEach(btn => {
+        btn.addEventListener('click', () => this.handleConfirm());
+      });
+
+      // Backdrop click to close (if closable)
+      if (this.closable) {
+        this.backdrop.addEventListener('click', (e) => {
+          if (e.target === this.backdrop) {
+            this.handleCancel();
+          }
+        });
+      }
+
+      // Escape key to close (if closable)
+      if (this.closable) {
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape' && !this.backdrop.classList.contains('hidden')) {
+            this.handleCancel();
+          }
+        });
+      }
+    }
+
+    public showModal() {
+      this.backdrop.classList.remove('hidden');
+      document.body.classList.add('modal-open');
+      
+      // Focus first focusable element
+      const firstFocusable = this.backdrop.querySelector<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      );
+      firstFocusable?.focus();
+
+      // Dispatch show event
+      this.backdrop.dispatchEvent(new CustomEvent('show', { bubbles: true }));
+    }
+
+    public hideModal() {
+      this.backdrop.classList.add('hidden');
+      document.body.classList.remove('modal-open');
+
+      // Dispatch hide event
+      this.backdrop.dispatchEvent(new CustomEvent('hide', { bubbles: true }));
+    }
+
+    private handleConfirm() {
+      // Dispatch confirm event
+      const event = new CustomEvent('confirm', { 
+        bubbles: true,
+        cancelable: true 
+      });
+      
+      this.backdrop.dispatchEvent(event);
+      
+      // Hide modal if event was not prevented
+      if (!event.defaultPrevented) {
+        this.hideModal();
+      }
+    }
+
+    private handleCancel() {
+      if (!this.closable) return;
+
+      // Dispatch cancel event
+      const event = new CustomEvent('cancel', { 
+        bubbles: true,
+        cancelable: true 
+      });
+      
+      this.backdrop.dispatchEvent(event);
+      
+      // Hide modal if event was not prevented
+      if (!event.defaultPrevented) {
+        this.hideModal();
+      }
+    }
+  }
+
+  // Initialize all modals on page load
+  document.addEventListener('DOMContentLoaded', () => {
+    const modals = document.querySelectorAll<HTMLElement>('.modal-backdrop');
+    
+    modals.forEach(modalBackdrop => {
+      const controller = new ModalController(modalBackdrop);
+      
+      // Attach controller to element for external access
+      (modalBackdrop as any).modalController = controller;
+    });
+  });
+
+  // Export modal utilities for external use
+  if (typeof window !== 'undefined') {
+    (window as any).Modal = {
+      show: (selector: string) => {
+        const modal = document.querySelector<HTMLElement>(selector);
+        const controller = (modal as any)?.modalController;
+        controller?.showModal();
+      },
+      hide: (selector: string) => {
+        const modal = document.querySelector<HTMLElement>(selector);
+        const controller = (modal as any)?.modalController;
+        controller?.hideModal();
+      }
+    };
+  }
+</script>

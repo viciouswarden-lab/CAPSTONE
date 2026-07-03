@@ -1,0 +1,390 @@
+---
+/**
+ * User Management Page - Firestore Connected
+ * 
+ * Administrator page for viewing and managing user accounts.
+ * Uses client-side rendering for real-time Firestore updates.
+ */
+
+import ModernLayout from '../../../layouts/ModernLayout.astro';
+
+// Disable caching to ensure fresh data on every visit
+Astro.response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+---
+
+<ModernLayout title="User Management">
+  <!-- Page Header -->
+  <div class="page-header">
+    <div class="page-header-content">
+      <h1>User Management</h1>
+      <p>Manage user accounts, roles, and permissions</p>
+    </div>
+    <div class="page-header-actions">
+      <button class="btn btn-secondary">
+        <span class="material-symbols-outlined">download</span>
+        Export
+      </button>
+      <a href="/admin/users/new" class="btn btn-primary">
+        <span class="material-symbols-outlined">add</span>
+        Create User
+      </a>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="stats-grid" id="stats-grid">
+    <div class="stat-card">
+      <div class="stat-icon-wrapper" style="background: #dbeafe; color: #1e40af;">
+        <span class="material-symbols-outlined">group</span>
+      </div>
+      <div class="stat-content">
+        <h3>Total Users</h3>
+        <div class="stat-value" id="total-users">-</div>
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-icon-wrapper" style="background: #d1fae5; color: #059669;">
+        <span class="material-symbols-outlined">check_circle</span>
+      </div>
+      <div class="stat-content">
+        <h3>Active Users</h3>
+        <div class="stat-value" id="active-users">-</div>
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-icon-wrapper" style="background: #fee2e2; color: #991b1b;">
+        <span class="material-symbols-outlined">cancel</span>
+      </div>
+      <div class="stat-content">
+        <h3>Inactive Users</h3>
+        <div class="stat-value" id="inactive-users">-</div>
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-icon-wrapper" style="background: #e9d5ff; color: #7c3aed;">
+        <span class="material-symbols-outlined">admin_panel_settings</span>
+      </div>
+      <div class="stat-content">
+        <h3>Administrators</h3>
+        <div class="stat-value" id="admin-count">-</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Search and Filters -->
+  <div class="card mb-6">
+    <div class="card-body">
+      <div class="search-bar">
+        <div class="search-input-wrapper">
+          <span class="material-symbols-outlined search-icon">search</span>
+          <input 
+            type="text" 
+            id="search-input"
+            class="search-input" 
+            placeholder="Search by name or email..."
+          />
+        </div>
+        <select id="role-filter" class="form-select" style="width: auto;">
+          <option value="">All Roles</option>
+          <option value="Administrator">Administrator</option>
+          <option value="Manager">Manager</option>
+          <option value="Analyst">Analyst</option>
+          <option value="Clerk">Clerk</option>
+          <option value="Sales_Associate">Sales Associate</option>
+        </select>
+        <select id="status-filter" class="form-select" style="width: auto;">
+          <option value="all">All Status</option>
+          <option value="active">Active Only</option>
+          <option value="inactive">Inactive Only</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading State -->
+  <div id="loading-state" class="loading-container">
+    <div class="spinner"></div>
+    <p style="margin-top: 1rem; color: var(--text-secondary);">Loading users from Firestore...</p>
+  </div>
+
+  <!-- Error Display -->
+  <div id="error-display" class="hidden">
+    <div class="alert alert-danger mb-6">
+      <span class="material-symbols-outlined">error</span>
+      <div>
+        <strong>Error Loading Users:</strong> <span id="error-message"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Users Table -->
+  <div id="users-content" class="card hidden">
+    <div class="card-header">
+      <h2>All Users</h2>
+      <span class="badge badge-info" id="user-count">0 users</span>
+    </div>
+    <div id="empty-state" class="empty-state hidden">
+      <span class="material-symbols-outlined empty-state-icon">group</span>
+      <h3>No Users Yet</h3>
+      <p>Get started by creating your first user account</p>
+      <a href="/admin/users/new" class="btn btn-primary" style="margin-top: 1rem;">
+        <span class="material-symbols-outlined">add</span>
+        Create First User
+      </a>
+    </div>
+    <div id="table-container" class="table-container hidden">
+      <table>
+        <thead>
+          <tr>
+            <th>User</th>
+            <th>Email</th>
+            <th>Role</th>
+            <th>Status</th>
+            <th>Last Login</th>
+            <th>Created</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="users-tbody">
+          <!-- Populated by JavaScript -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Firestore Status -->
+  <div id="firestore-status" class="alert alert-success mt-6 hidden">
+    <span class="material-symbols-outlined">check_circle</span>
+    <div>
+      <strong>Connected to Firestore:</strong> <span id="status-message"></span>
+    </div>
+  </div>
+</ModernLayout>
+
+<script>
+  import { userManagementService } from '../../../services/users/UserManagementService';
+  import type { User } from '../../../types/models';
+
+  // Elements
+  const loadingState = document.getElementById('loading-state')!;
+  const errorDisplay = document.getElementById('error-display')!;
+  const errorMessage = document.getElementById('error-message')!;
+  const usersContent = document.getElementById('users-content')!;
+  const emptyState = document.getElementById('empty-state')!;
+  const tableContainer = document.getElementById('table-container')!;
+  const usersTbody = document.getElementById('users-tbody')!;
+  const userCount = document.getElementById('user-count')!;
+  const firestoreStatus = document.getElementById('firestore-status')!;
+  const statusMessage = document.getElementById('status-message')!;
+  const searchInput = document.getElementById('search-input') as HTMLInputElement;
+  const roleFilter = document.getElementById('role-filter') as HTMLSelectElement;
+  const statusFilter = document.getElementById('status-filter') as HTMLSelectElement;
+
+  // Stats elements
+  const totalUsersEl = document.getElementById('total-users')!;
+  const activeUsersEl = document.getElementById('active-users')!;
+  const inactiveUsersEl = document.getElementById('inactive-users')!;
+  const adminCountEl = document.getElementById('admin-count')!;
+
+  let allUsers: User[] = [];
+  let filteredUsers: User[] = [];
+
+  // Format date helper
+  const formatDate = (date: Date) => {
+    return new Intl.DateTimeFormat('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    }).format(date);
+  };
+
+  const formatRelativeTime = (date: Date) => {
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+    
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return formatDate(date);
+  };
+
+  const getRoleColor = (role: string): string => {
+    const colors: Record<string, string> = {
+      'Administrator': 'badge-danger',
+      'Manager': 'badge-info',
+      'Analyst': 'badge-success',
+      'Clerk': 'badge-warning',
+      'Sales_Associate': 'badge-info',
+    };
+    return colors[role] || 'badge-info';
+  };
+
+  // Update stats
+  const updateStats = (users: User[]) => {
+    totalUsersEl.textContent = users.length.toString();
+    activeUsersEl.textContent = users.filter(u => u.isActive).length.toString();
+    inactiveUsersEl.textContent = users.filter(u => !u.isActive).length.toString();
+    adminCountEl.textContent = users.filter(u => u.role === 'Administrator').length.toString();
+  };
+
+  // Render users table
+  const renderUsers = (users: User[]) => {
+    usersTbody.innerHTML = '';
+    
+    if (users.length === 0) {
+      emptyState.classList.remove('hidden');
+      tableContainer.classList.add('hidden');
+      return;
+    }
+
+    emptyState.classList.add('hidden');
+    tableContainer.classList.remove('hidden');
+
+    users.forEach(user => {
+      const row = document.createElement('tr');
+      row.innerHTML = `
+        <td>
+          <div class="flex items-center gap-2">
+            <div style="width: 40px; height: 40px; border-radius: 50%; background: var(--bg-secondary); display: flex; align-items: center; justify-content: center; color: var(--text-secondary);">
+              <span class="material-symbols-outlined">account_circle</span>
+            </div>
+            <div>
+              <div class="font-semibold">${user.displayName}</div>
+              <div class="text-xs text-muted">${user.userId.substring(0, 12)}...</div>
+            </div>
+          </div>
+        </td>
+        <td class="text-sm">${user.email}</td>
+        <td>
+          <span class="badge ${getRoleColor(user.role)}">${user.role.replace('_', ' ')}</span>
+        </td>
+        <td>
+          ${user.isActive 
+            ? '<span class="badge badge-success">Active</span>' 
+            : '<span class="badge badge-danger">Inactive</span>'}
+        </td>
+        <td class="text-sm text-muted">${formatRelativeTime(user.lastLoginAt)}</td>
+        <td class="text-sm text-muted">${formatDate(user.createdAt)}</td>
+        <td>
+          <div class="flex gap-2">
+            <a href="/admin/users/${user.userId}" class="btn-ghost" style="padding: 0.5rem;" title="Edit user">
+              <span class="material-symbols-outlined" style="font-size: 20px;">edit</span>
+            </a>
+            <button class="btn-ghost" style="padding: 0.5rem;" title="View activity">
+              <span class="material-symbols-outlined" style="font-size: 20px;">history</span>
+            </button>
+          </div>
+        </td>
+      `;
+      usersTbody.appendChild(row);
+    });
+
+    userCount.textContent = `${users.length} user${users.length !== 1 ? 's' : ''}`;
+  };
+
+  // Filter users
+  const filterUsers = () => {
+    const searchText = searchInput.value.toLowerCase().trim();
+    const role = roleFilter.value;
+    const status = statusFilter.value;
+
+    filteredUsers = allUsers.filter(user => {
+      // Role filter
+      if (role && user.role !== role) return false;
+
+      // Status filter
+      if (status === 'active' && !user.isActive) return false;
+      if (status === 'inactive' && user.isActive) return false;
+
+      // Search filter
+      if (searchText) {
+        const nameMatch = user.displayName.toLowerCase().includes(searchText);
+        const emailMatch = user.email.toLowerCase().includes(searchText);
+        const idMatch = user.userId.toLowerCase().includes(searchText);
+        return nameMatch || emailMatch || idMatch;
+      }
+
+      return true;
+    });
+
+    renderUsers(filteredUsers);
+  };
+
+  // Load users from Firestore
+  const loadUsers = async () => {
+    try {
+      loadingState.classList.remove('hidden');
+      errorDisplay.classList.add('hidden');
+      usersContent.classList.add('hidden');
+      firestoreStatus.classList.add('hidden');
+
+      // Fetch all users
+      allUsers = await userManagementService.listUsers();
+      filteredUsers = allUsers;
+
+      // Show content
+      loadingState.classList.add('hidden');
+      usersContent.classList.remove('hidden');
+      firestoreStatus.classList.remove('hidden');
+
+      // Update stats
+      updateStats(allUsers);
+
+      // Render users
+      renderUsers(filteredUsers);
+
+      // Update status message
+      statusMessage.textContent = `Displaying ${allUsers.length} user(s) from your database. All changes are saved automatically.`;
+
+    } catch (err) {
+      loadingState.classList.add('hidden');
+      errorDisplay.classList.remove('hidden');
+      
+      const errMsg = err instanceof Error ? err.message : 'Failed to load users';
+      errorMessage.textContent = errMsg;
+      
+      console.error('Error loading users:', err);
+    }
+  };
+
+  // Event listeners
+  searchInput.addEventListener('input', filterUsers);
+  roleFilter.addEventListener('change', filterUsers);
+  statusFilter.addEventListener('change', filterUsers);
+
+  // Load users on page load
+  loadUsers();
+</script>
+
+<style>
+  .loading-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 2rem;
+  }
+
+  .spinner {
+    width: 48px;
+    height: 48px;
+    border: 4px solid #e5e7eb;
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .hidden {
+    display: none !important;
+  }
+</style>

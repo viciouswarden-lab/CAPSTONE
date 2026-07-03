@@ -1,0 +1,218 @@
+---
+/**
+ * Tooltip Component
+ * 
+ * Displays contextual help tooltips for complex form fields and UI elements.
+ * Validates Requirement 20.2
+ * 
+ * Props:
+ * - content: The tooltip text content to display
+ * - position: 'top' | 'bottom' | 'left' | 'right' - tooltip position (default: 'top')
+ * - maxWidth: Maximum width of tooltip in pixels (default: 250)
+ * - delay: Show delay in milliseconds (default: 300)
+ * 
+ * Usage:
+ * <Tooltip content="Help text here">
+ *   <button>Hover me</button>
+ * </Tooltip>
+ */
+
+interface Props {
+  content: string;
+  position?: 'top' | 'bottom' | 'left' | 'right';
+  maxWidth?: number;
+  delay?: number;
+}
+
+const { 
+  content,
+  position = 'top',
+  maxWidth = 250,
+  delay = 300
+} = Astro.props;
+
+const positionClasses = {
+  top: 'bottom-full left-1/2 -translate-x-1/2 mb-2',
+  bottom: 'top-full left-1/2 -translate-x-1/2 mt-2',
+  left: 'right-full top-1/2 -translate-y-1/2 mr-2',
+  right: 'left-full top-1/2 -translate-y-1/2 ml-2'
+};
+
+const arrowClasses = {
+  top: 'top-full left-1/2 -translate-x-1/2 border-t-gray-900',
+  bottom: 'bottom-full left-1/2 -translate-x-1/2 border-b-gray-900',
+  left: 'left-full top-1/2 -translate-y-1/2 border-l-gray-900',
+  right: 'right-full top-1/2 -translate-y-1/2 border-r-gray-900'
+};
+
+const tooltipClass = positionClasses[position];
+const arrowClass = arrowClasses[position];
+---
+
+<div class="tooltip-wrapper relative inline-block" data-delay={delay}>
+  <!-- Trigger Element -->
+  <div class="tooltip-trigger">
+    <slot />
+  </div>
+
+  <!-- Tooltip Content -->
+  <div 
+    class={`tooltip-content ${tooltipClass} absolute z-50 px-3 py-2 text-sm text-white bg-gray-900 rounded-md shadow-lg opacity-0 invisible transition-all duration-200 pointer-events-none whitespace-normal`}
+    style={`max-width: ${maxWidth}px;`}
+    role="tooltip"
+    aria-hidden="true"
+  >
+    {content}
+    
+    <!-- Tooltip Arrow -->
+    <div 
+      class={`${arrowClass} absolute w-0 h-0 border-4 border-transparent`}
+      aria-hidden="true"
+    />
+  </div>
+</div>
+
+<style>
+  .tooltip-wrapper:hover .tooltip-content,
+  .tooltip-wrapper:focus-within .tooltip-content {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  /* Ensure tooltip stays on screen */
+  .tooltip-content {
+    white-space: normal;
+    word-wrap: break-word;
+    line-height: 1.4;
+  }
+
+  /* Prevent tooltip from being clipped */
+  .tooltip-wrapper {
+    position: relative;
+  }
+
+  /* Animation for tooltip appearance */
+  .tooltip-wrapper:hover .tooltip-content {
+    animation: tooltipFadeIn 0.2s ease-out;
+  }
+
+  @keyframes tooltipFadeIn {
+    from {
+      opacity: 0;
+      transform: translateX(-50%) translateY(-5px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+  }
+
+  /* Accessibility: Show tooltip on keyboard focus */
+  .tooltip-trigger:focus-visible .tooltip-content {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  /* Mobile touch support */
+  @media (hover: none) {
+    .tooltip-wrapper:active .tooltip-content {
+      opacity: 1;
+      visibility: visible;
+    }
+  }
+
+  /* High contrast mode support */
+  @media (prefers-contrast: high) {
+    .tooltip-content {
+      border: 2px solid white;
+    }
+  }
+</style>
+
+<script>
+  /**
+   * Tooltip functionality with delayed show
+   * Implements touch support for mobile devices
+   */
+  
+  document.addEventListener('DOMContentLoaded', () => {
+    const tooltipWrappers = document.querySelectorAll('.tooltip-wrapper');
+    
+    tooltipWrappers.forEach(wrapper => {
+      const trigger = wrapper.querySelector('.tooltip-trigger');
+      const content = wrapper.querySelector('.tooltip-content');
+      const delay = parseInt(wrapper.getAttribute('data-delay') || '300', 10);
+      
+      let showTimeout: number | null = null;
+      let hideTimeout: number | null = null;
+
+      if (!trigger || !content) return;
+
+      // Mouse enter - show with delay
+      wrapper.addEventListener('mouseenter', () => {
+        if (hideTimeout) {
+          clearTimeout(hideTimeout);
+          hideTimeout = null;
+        }
+        
+        showTimeout = window.setTimeout(() => {
+          content.setAttribute('aria-hidden', 'false');
+        }, delay);
+      });
+
+      // Mouse leave - hide immediately
+      wrapper.addEventListener('mouseleave', () => {
+        if (showTimeout) {
+          clearTimeout(showTimeout);
+          showTimeout = null;
+        }
+        
+        content.setAttribute('aria-hidden', 'true');
+      });
+
+      // Focus - show immediately for keyboard users
+      trigger.addEventListener('focus', () => {
+        content.setAttribute('aria-hidden', 'false');
+      });
+
+      // Blur - hide
+      trigger.addEventListener('blur', () => {
+        content.setAttribute('aria-hidden', 'true');
+      });
+
+      // Touch support for mobile
+      let touchStartTime = 0;
+      
+      wrapper.addEventListener('touchstart', (e) => {
+        touchStartTime = Date.now();
+      });
+
+      wrapper.addEventListener('touchend', (e) => {
+        const touchDuration = Date.now() - touchStartTime;
+        
+        // If quick tap, toggle tooltip
+        if (touchDuration < 500) {
+          e.preventDefault();
+          const isVisible = content.getAttribute('aria-hidden') === 'false';
+          content.setAttribute('aria-hidden', isVisible ? 'true' : 'false');
+          
+          // Auto-hide after 3 seconds on mobile
+          if (!isVisible) {
+            setTimeout(() => {
+              content.setAttribute('aria-hidden', 'true');
+            }, 3000);
+          }
+        }
+      });
+    });
+
+    // Close all tooltips when pressing Escape
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        document.querySelectorAll('.tooltip-content').forEach(content => {
+          content.setAttribute('aria-hidden', 'true');
+        });
+      }
+    });
+  });
+</script>

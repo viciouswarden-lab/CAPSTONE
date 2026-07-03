@@ -1,0 +1,622 @@
+---
+/**
+ * Inventory History Page
+ * 
+ * Displays transaction history for a specific product with date range filtering.
+ * Shows quantity changes, transaction types, users, and location information.
+ * 
+ * Requirements: 8.6
+ * Task: 28.3
+ */
+
+import MainLayout from '../../../layouts/MainLayout.astro';
+import DataTable from '../../../components/DataTable.astro';
+import ErrorMessage from '../../../components/ErrorMessage.astro';
+import LoadingSpinner from '../../../components/LoadingSpinner.astro';
+import { inventoryService } from '../../../services/inventory';
+import { productService } from '../../../services/products';
+import type { InventoryTransaction } from '../../../types/models';
+import type { Product } from '../../../types/models';
+import type { InventoryTransactionDoc } from '../../../types/firestore';
+import { db } from '../../../services/firebase';
+import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
+
+// Get SKU from route parameter
+const { sku } = Astro.params;
+
+if (!sku) {
+  return Astro.redirect('/inventory');
+}
+
+// Get date range from query parameters
+const url = new URL(Astro.request.url);
+const locationFilter = url.searchParams.get('location') || 'all';
+
+// Default date range: last 30 days
+const defaultEndDate = new Date();
+const defaultStartDate = new Date();
+defaultStartDate.setDate(defaultStartDate.getDate() - 30);
+
+const startDateParam = url.searchParams.get('startDate');
+const endDateParam = url.searchParams.get('endDate');
+
+let startDate = startDateParam ? new Date(startDateParam) : defaultStartDate;
+let endDate = endDateParam ? new Date(endDateParam) : defaultEndDate;
+
+// Ensure end date includes the entire day
+endDate.setHours(23, 59, 59, 999);
+
+let product: Product | null = null;
+let transactions: InventoryTransaction[] = [];
+let transactionsWithLocation: Array<InventoryTransaction & { locationId: string; notes?: string }> = [];
+let error: string | null = null;
+let isLoading = true;
+let uniqueLocations: string[] = [];
+
+try {
+  // Get product details
+  try {
+    product = await productService.getProduct(sku);
+  } catch (err) {
+    error = `Product with SKU "${sku}" not found`;
+    isLoading = false;
+  }
+
+  if (product) {
+    // Get transaction history using the service
+    transactions = await inventoryService.getInventoryHistory(sku, {
+      start: startDate,
+      end: endDate,
+    });
+
+    // Requirement 8.6: Fetch additional details (location, notes) from Firestore
+    // The InventoryTransaction interface doesn't include location and notes, so we need to fetch them separately
+    const transactionsRef = collection(db, 'inventory_transactions');
+    const transactionIds = transactions.map(t => t.transactionId);
+    
+    if (transactionIds.length > 0) {
+      // Fetch full transaction documents to get location and notes
+      const detailedTransactionsQuery = query(
+        transactionsRef,
+        where('sku', '==', sku)
+      );
+      
+      const detailedSnap = await getDocs(detailedTransactionsQuery);
+      const transactionDetailsMap = new Map<string, { locationId: string; notes?: string }>();
+      
+      detailedSnap.forEach((doc) => {
+        const data = doc.data() as InventoryTransactionDoc;
+        transactionDetailsMap.set(data.transactionId, {
+          locationId: data.locationId,
+          notes: data.notes,
+        });
+      });
+
+      // Merge transaction data with additional details
+      transactionsWithLocation = transactions.map(t => {
+        const details = transactionDetailsMap.get(t.transactionId);
+        return {
+          ...t,
+          locationId: details?.locationId || 'unknown',
+          notes: details?.notes,
+        };
+      });
+    }
+
+    // Filter by location if specified
+    if (locationFilter !== 'all') {
+      transactionsWithLocation = transactionsWithLocation.filter(
+        t => t.locationId === locationFilter
+      );
+    }
+
+    // Get unique locations for filter
+    uniqueLocations = [...new Set(transactionsWithLocation.map(t => t.locationId))].sort();
+
+    isLoading = false;
+  }
+} catch (err) {
+  isLoading = false;
+  error = err instanceof Error ? err.message : 'Failed to load inventory history';
+  console.error('Error loading inventory history:', err);
+}
+
+// Format date for display
+const formatDate = (date: Date) => {
+  return new Date(date).toLocaleString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+};
+
+// Format date for input fields (YYYY-MM-DD)
+const formatDateForInput = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+// Format transaction type for display
+const formatTransactionType = (type: string): string => {
+  const typeMap: Record<string, string> = {
+    'receiving': 'Receiving',
+    'sale': 'Sale',
+    'adjustment': 'Adjustment',
+    'void': 'Void',
+    'return': 'Return',
+  };
+  return typeMap[type] || type;
+};
+
+// Define table columns - Requirement 8.6
+const columns = [
+  {
+    key: 'timestamp',
+    label: 'Date/Time',
+    sortable: true,
+    align: 'left' as const,
+  },
+  {
+    key: 'transactionType',
+    label: 'Type',
+    sortable: true,
+    align: 'left' as const,
+  },
+  {
+    key: 'quantityChange',
+    label: 'Change',
+    sortable: true,
+    align: 'right' as const,
+  },
+  {
+    key: 'quantityBefore',
+    label: 'Before',
+    sortable: true,
+    align: 'right' as const,
+  },
+  {
+    key: 'quantityAfter',
+    label: 'After',
+    sortable: true,
+    align: 'right' as const,
+  },
+  {
+    key: 'locationId',
+    label: 'Location',
+    sortable: true,
+    align: 'center' as const,
+  },
+  {
+    key: 'userId',
+    label: 'User',
+    sortable: true,
+    align: 'left' as const,
+  },
+  {
+    key: 'notes',
+    label: 'Notes',
+    sortable: false,
+    align: 'left' as const,
+  },
+];
+
+// Transform transaction data for table display
+const tableData = transactionsWithLocation.map(transaction => ({
+  rowKey: transaction.transactionId,
+  timestamp: formatDate(transaction.timestamp),
+  transactionType: formatTransactionType(transaction.transactionType),
+  quantityChange: transaction.quantityAfter - transaction.quantityBefore,
+  quantityBefore: transaction.quantityBefore,
+  quantityAfter: transaction.quantityAfter,
+  locationId: transaction.locationId,
+  userId: transaction.userId,
+  notes: transaction.notes || '-',
+}));
+
+// Location filter options
+const locationOptions = [
+  { value: 'all', label: 'All Locations' },
+  ...uniqueLocations.map(loc => ({ value: loc, label: loc }))
+];
+---
+
+<MainLayout title={`Inventory History - ${sku}`} requireAuth={true} requiredRole="Clerk">
+  <!-- Page Header -->
+  <div class="page-header mb-6">
+    <div class="flex items-center justify-between">
+      <div>
+        <div class="breadcrumb text-sm text-gray-600 mb-2">
+          <a href="/inventory" class="hover:text-blue-600">Inventory</a>
+          <span class="mx-2">›</span>
+          <span>History</span>
+        </div>
+        <h1 class="text-3xl font-bold text-gray-900">Inventory History</h1>
+        {product && (
+          <div class="mt-2">
+            <p class="text-lg text-gray-700">
+              <span class="font-semibold">SKU:</span> {product.sku}
+            </p>
+            <p class="text-gray-600">{product.description}</p>
+            <p class="text-sm text-gray-500">
+              Category: {product.category} | Unit: {product.unitOfMeasure}
+            </p>
+          </div>
+        )}
+      </div>
+      <div>
+        <a 
+          href="/inventory" 
+          class="button bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700 transition-colors font-medium"
+        >
+          ← Back to Inventory
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Date Range Filter Form -->
+  {!isLoading && !error && (
+    <div class="filter-card bg-white rounded-lg shadow-md p-6 mb-6">
+      <form method="GET" class="space-y-4">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <!-- Start Date -->
+          <div class="form-group">
+            <label for="startDate" class="block text-sm font-medium text-gray-700 mb-2">
+              Start Date
+            </label>
+            <input 
+              type="date" 
+              id="startDate" 
+              name="startDate" 
+              value={formatDateForInput(startDate)}
+              class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+
+          <!-- End Date -->
+          <div class="form-group">
+            <label for="endDate" class="block text-sm font-medium text-gray-700 mb-2">
+              End Date
+            </label>
+            <input 
+              type="date" 
+              id="endDate" 
+              name="endDate" 
+              value={formatDateForInput(endDate)}
+              class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+
+          <!-- Location Filter -->
+          <div class="form-group">
+            <label for="location" class="block text-sm font-medium text-gray-700 mb-2">
+              Location
+            </label>
+            <select 
+              id="location" 
+              name="location"
+              class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              {locationOptions.map(option => (
+                <option 
+                  value={option.value} 
+                  selected={option.value === locationFilter}
+                >
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <!-- Filter Button -->
+          <div class="form-group flex items-end">
+            <button 
+              type="submit" 
+              class="w-full button bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors font-medium"
+            >
+              Apply Filter
+            </button>
+          </div>
+        </div>
+
+        <!-- Quick Date Range Buttons -->
+        <div class="flex gap-2 flex-wrap">
+          <button 
+            type="button" 
+            class="quick-filter text-sm px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
+            data-days="7"
+          >
+            Last 7 Days
+          </button>
+          <button 
+            type="button" 
+            class="quick-filter text-sm px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
+            data-days="30"
+          >
+            Last 30 Days
+          </button>
+          <button 
+            type="button" 
+            class="quick-filter text-sm px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
+            data-days="90"
+          >
+            Last 90 Days
+          </button>
+          <button 
+            type="button" 
+            class="quick-filter text-sm px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
+            data-days="365"
+          >
+            Last Year
+          </button>
+        </div>
+      </form>
+    </div>
+  )}
+
+  <!-- Results Summary -->
+  {!isLoading && !error && (
+    <div class="results-summary mb-4">
+      <p class="text-sm text-gray-600">
+        Showing <strong>{transactionsWithLocation.length}</strong> {transactionsWithLocation.length === 1 ? 'transaction' : 'transactions'} 
+        from <strong>{formatDate(startDate)}</strong> to <strong>{formatDate(endDate)}</strong>
+        {locationFilter !== 'all' && (
+          <span> at location <strong>{locationFilter}</strong></span>
+        )}
+      </p>
+    </div>
+  )}
+
+  <!-- Error Display -->
+  {error && (
+    <ErrorMessage 
+      message={error}
+      type="error"
+      dismissable={false}
+    />
+  )}
+
+  <!-- Loading State -->
+  {isLoading && (
+    <LoadingSpinner 
+      size="lg"
+      message="Loading inventory history..."
+    />
+  )}
+
+  <!-- Transaction History Table -->
+  {!isLoading && !error && (
+    <div class="card bg-white rounded-lg shadow-md p-6">
+      <DataTable 
+        columns={columns}
+        data={tableData}
+        keyField="rowKey"
+        striped={true}
+        hoverable={true}
+        bordered={true}
+        emptyMessage={`No transactions found for SKU "${sku}" in the selected date range.`}
+      />
+    </div>
+  )}
+
+  <!-- Quick filter script -->
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      // Handle quick filter buttons
+      const quickFilterButtons = document.querySelectorAll('.quick-filter');
+      const startDateInput = document.getElementById('startDate') as HTMLInputElement;
+      const endDateInput = document.getElementById('endDate') as HTMLInputElement;
+
+      quickFilterButtons.forEach(button => {
+        button.addEventListener('click', () => {
+          const days = parseInt(button.getAttribute('data-days') || '30', 10);
+          const endDate = new Date();
+          const startDate = new Date();
+          startDate.setDate(startDate.getDate() - days);
+
+          // Format dates for input
+          const formatDate = (date: Date) => {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+          };
+
+          startDateInput.value = formatDate(startDate);
+          endDateInput.value = formatDate(endDate);
+
+          // Submit the form
+          const form = button.closest('form');
+          if (form) {
+            form.submit();
+          }
+        });
+      });
+
+      // Style quantity change cells based on positive/negative
+      const table = document.querySelector('.data-table');
+      if (!table) return;
+
+      const quantityChangeCells = table.querySelectorAll('tbody tr td:nth-child(3)');
+      quantityChangeCells.forEach(cell => {
+        const value = parseInt(cell.textContent?.trim() || '0', 10);
+        
+        if (value > 0) {
+          cell.innerHTML = `
+            <span class="quantity-change positive text-green-700 font-semibold">
+              +${value}
+            </span>
+          `;
+        } else if (value < 0) {
+          cell.innerHTML = `
+            <span class="quantity-change negative text-red-700 font-semibold">
+              ${value}
+            </span>
+          `;
+        } else {
+          cell.innerHTML = `
+            <span class="quantity-change zero text-gray-500">
+              0
+            </span>
+          `;
+        }
+      });
+
+      // Style transaction type cells
+      const typeCells = table.querySelectorAll('tbody tr td:nth-child(2)');
+      typeCells.forEach(cell => {
+        const type = cell.textContent?.trim();
+        let badgeClass = '';
+        
+        switch (type) {
+          case 'Receiving':
+            badgeClass = 'bg-green-100 text-green-800';
+            break;
+          case 'Sale':
+            badgeClass = 'bg-blue-100 text-blue-800';
+            break;
+          case 'Adjustment':
+            badgeClass = 'bg-yellow-100 text-yellow-800';
+            break;
+          case 'Void':
+            badgeClass = 'bg-red-100 text-red-800';
+            break;
+          case 'Return':
+            badgeClass = 'bg-purple-100 text-purple-800';
+            break;
+          default:
+            badgeClass = 'bg-gray-100 text-gray-800';
+        }
+        
+        cell.innerHTML = `
+          <span class="type-badge px-2 py-1 rounded text-xs font-medium ${badgeClass}">
+            ${type}
+          </span>
+        `;
+      });
+    });
+  </script>
+
+  <style>
+    .page-header {
+      border-bottom: 2px solid var(--color-border);
+      padding-bottom: 1rem;
+    }
+
+    .breadcrumb a {
+      text-decoration: none;
+    }
+
+    .breadcrumb a:hover {
+      text-decoration: underline;
+    }
+
+    .filter-card {
+      animation: fadeIn 0.3s ease-out;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(-10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .form-group label {
+      font-weight: 600;
+    }
+
+    .form-group input:focus,
+    .form-group select:focus {
+      outline: none;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+
+    .quick-filter {
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .results-summary {
+      padding: 0.5rem 0;
+    }
+
+    .quantity-change {
+      display: inline-block;
+    }
+
+    .type-badge {
+      display: inline-block;
+      white-space: nowrap;
+    }
+
+    /* Responsive adjustments */
+    @media (max-width: 768px) {
+      .page-header .flex {
+        flex-direction: column;
+        gap: 1rem;
+        align-items: flex-start;
+      }
+
+      .page-header .button {
+        width: 100%;
+        text-align: center;
+      }
+
+      .filter-card .grid {
+        grid-template-columns: 1fr;
+      }
+
+      .quick-filter {
+        flex: 1 1 calc(50% - 0.5rem);
+      }
+    }
+
+    /* Table column widths */
+    :global(.data-table th:nth-child(1)),
+    :global(.data-table td:nth-child(1)) {
+      width: 16%;
+    }
+
+    :global(.data-table th:nth-child(2)),
+    :global(.data-table td:nth-child(2)) {
+      width: 12%;
+    }
+
+    :global(.data-table th:nth-child(3)),
+    :global(.data-table td:nth-child(3)) {
+      width: 10%;
+    }
+
+    :global(.data-table th:nth-child(4)),
+    :global(.data-table td:nth-child(4)),
+    :global(.data-table th:nth-child(5)),
+    :global(.data-table td:nth-child(5)) {
+      width: 10%;
+    }
+
+    :global(.data-table th:nth-child(6)),
+    :global(.data-table td:nth-child(6)) {
+      width: 10%;
+    }
+
+    :global(.data-table th:nth-child(7)),
+    :global(.data-table td:nth-child(7)) {
+      width: 12%;
+    }
+
+    :global(.data-table th:nth-child(8)),
+    :global(.data-table td:nth-child(8)) {
+      width: 20%;
+    }
+  </style>
+</MainLayout>

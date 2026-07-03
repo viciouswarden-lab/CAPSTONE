@@ -1,0 +1,133 @@
+---
+/**
+ * Example Administrator-Only Page
+ * 
+ * This page demonstrates the MainLayout component with role-based access control.
+ * Only users with Administrator role can access this page.
+ * 
+ * This is a demonstration file showing how to use MainLayout with requiredRole.
+ */
+import MainLayout from '../layouts/MainLayout.astro';
+---
+
+<MainLayout 
+  title="Administrator Only Example" 
+  requireAuth={true} 
+  requiredRole="Administrator"
+>
+  <div class="card">
+    <h1>🔒 Administrator-Only Page</h1>
+    <p class="text-muted">
+      This page requires the Administrator role. Users with lower roles will be 
+      redirected to the /unauthorized page.
+    </p>
+
+    <h2 class="mt-lg">Role Hierarchy</h2>
+    <p>PRO SYNAPSE implements a role hierarchy system:</p>
+    
+    <div class="role-hierarchy mt-md">
+      <div class="role-item role-admin">
+        <strong>Administrator</strong> (Level 5)
+        <span class="role-desc">Full system access</span>
+      </div>
+      <div class="role-item role-manager">
+        <strong>Manager</strong> (Level 4)
+        <span class="role-desc">Business operations & reports</span>
+      </div>
+      <div class="role-item role-analyst">
+        <strong>Analyst</strong> (Level 3)
+        <span class="role-desc">Data analysis & matching</span>
+      </div>
+      <div class="role-item role-clerk">
+        <strong>Clerk</strong> (Level 2)
+        <span class="role-desc">Inventory & receiving</span>
+      </div>
+      <div class="role-item role-sales">
+        <strong>Sales Associate</strong> (Level 1)
+        <span class="role-desc">POS operations only</span>
+      </div>
+    </div>
+
+    <h2 class="mt-lg">Access Control Logic</h2>
+    <p>
+      When you specify <code>requiredRole="Administrator"</code>, the MainLayout:
+    </p>
+    <ol>
+      <li>Checks if the user is authenticated</li>
+      <li>Retrieves the user's role from the session</li>
+      <li>Compares the user's role level with the required role level</li>
+      <li>Grants access if user role level ≥ required role level</li>
+      <li>Redirects to /unauthorized if access is denied</li>
+    </ol>
+
+    <h2 class="mt-lg">Navigation Menu</h2>
+    <p>
+      The navigation menu also uses role-based visibility. As an Administrator, 
+      you should see the "Users" menu item that other roles cannot see.
+    </p>
+  </div>
+</MainLayout>
+
+<style>
+  code {
+    background-color: var(--color-surface);
+    padding: 0.125rem 0.25rem;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: 0.875em;
+  }
+
+  ol {
+    margin-left: var(--spacing-lg);
+    margin-bottom: var(--spacing-md);
+  }
+
+  li {
+    margin-bottom: var(--spacing-sm);
+  }
+
+  .role-hierarchy {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+  }
+
+  .role-item {
+    padding: var(--spacing-md);
+    border-radius: var(--radius-md);
+    border-left: 4px solid;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+  }
+
+  .role-admin {
+    background-color: #fef3c7;
+    border-color: #f59e0b;
+  }
+
+  .role-manager {
+    background-color: #dbeafe;
+    border-color: #3b82f6;
+  }
+
+  .role-analyst {
+    background-color: #d1fae5;
+    border-color: #10b981;
+  }
+
+  .role-clerk {
+    background-color: #e0e7ff;
+    border-color: #6366f1;
+  }
+
+  .role-sales {
+    background-color: #fce7f3;
+    border-color: #ec4899;
+  }
+
+  .role-desc {
+    font-size: 0.875rem;
+    color: var(--color-text-secondary);
+  }
+</style>

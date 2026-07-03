@@ -1,0 +1,1632 @@
+---
+/**
+ * Product Matching Page - Firestore Connected
+ * 
+ * Displays unmatched products and matching suggestions from pricelists.
+ * Allows manual confirmation of suggested matches.
+ */
+
+import ModernLayout from '../../layouts/ModernLayout.astro';
+
+// Disable caching
+Astro.response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+---
+
+<ModernLayout title="Product Matching">
+  <div class="matching-page">
+    <!-- Page Header -->
+    <div class="page-header">
+      <div>
+        <h1>
+          <span class="material-symbols-outlined" style="vertical-align: middle; margin-right: 0.5rem;">link</span>
+          Product Matching
+        </h1>
+        <p class="subtitle">Review and match supplier products to your catalog</p>
+      </div>
+      <button class="btn btn-secondary" id="refresh-btn">
+        <span class="material-symbols-outlined">refresh</span>
+        Refresh
+      </button>
+    </div>
+
+    <!-- Loading State -->
+    <div id="loading-state" class="loading-container">
+      <div class="spinner"></div>
+      <p style="margin-top: 1rem; color: var(--text-secondary);">Loading items from Firestore...</p>
+    </div>
+
+    <!-- Error Display -->
+    <div id="error-display" class="hidden">
+      <div class="alert alert-error">
+        <span class="material-symbols-outlined">error</span>
+        <div>
+          <strong>Error:</strong> <span id="error-message"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Content -->
+    <div id="content" class="hidden">
+      <!-- Stats -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <span class="material-symbols-outlined stat-icon" style="color: #ef4444;">link_off</span>
+          <div class="stat-label">Unmatched</div>
+          <div class="stat-value" id="unmatched-count" style="color: #ef4444;">0</div>
+        </div>
+
+        <div class="stat-card">
+          <span class="material-symbols-outlined stat-icon" style="color: #f59e0b;">help</span>
+          <div class="stat-label">Suggestions</div>
+          <div class="stat-value" id="suggested-count" style="color: #f59e0b;">0</div>
+        </div>
+
+        <div class="stat-card">
+          <span class="material-symbols-outlined stat-icon" style="color: #10b981;">check_circle</span>
+          <div class="stat-label">Matched</div>
+          <div class="stat-value" id="matched-count" style="color: #10b981;">0</div>
+        </div>
+
+        <div class="stat-card">
+          <span class="material-symbols-outlined stat-icon" style="color: #6b7280;">inventory_2</span>
+          <div class="stat-label">Total Items</div>
+          <div class="stat-value" id="total-count" style="color: #6b7280;">0</div>
+        </div>
+      </div>
+
+      <!-- Filters -->
+      <div class="filters-section card">
+        <div class="filters-header">
+          <span class="material-symbols-outlined">filter_list</span>
+          <span>Filters</span>
+        </div>
+        <div class="filters-content">
+          <div class="filter-group">
+            <label class="filter-label">Status</label>
+            <div class="filter-buttons" id="status-filter">
+              <button class="filter-btn active" data-status="all">
+                <span class="material-symbols-outlined">select_all</span>
+                All
+              </button>
+              <button class="filter-btn" data-status="suggested">
+                <span class="material-symbols-outlined">recommend</span>
+                Suggested Only
+              </button>
+              <button class="filter-btn" data-status="unmatched">
+                <span class="material-symbols-outlined">link_off</span>
+                Unmatched Only
+              </button>
+            </div>
+          </div>
+
+          <div class="filter-group">
+            <label class="filter-label">Search Product</label>
+            <div class="search-input-wrapper">
+              <span class="material-symbols-outlined search-icon">search</span>
+              <input 
+                type="text" 
+                id="search-input" 
+                class="search-input" 
+                placeholder="Search by product name, code, or supplier..."
+              />
+              <button class="clear-search-btn hidden" id="clear-search-btn">
+                <span class="material-symbols-outlined">close</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="filter-group">
+            <label class="filter-label">Supplier</label>
+            <select id="supplier-filter" class="filter-select">
+              <option value="all">All Suppliers</option>
+            </select>
+          </div>
+        </div>
+        <div class="filter-results">
+          <span id="filter-results-text">Showing all items</span>
+          <button class="btn-text" id="clear-filters-btn">
+            <span class="material-symbols-outlined">refresh</span>
+            Clear Filters
+          </button>
+        </div>
+      </div>
+
+      <!-- Empty State -->
+      <div id="empty-state" class="card hidden" style="text-align: center; padding: 3rem;">
+        <span class="material-symbols-outlined" style="font-size: 64px; color: #10b981; margin-bottom: 1rem;">check_circle</span>
+        <h2 style="margin-bottom: 0.5rem;">All Items Matched!</h2>
+        <p style="color: #6b7280; margin-bottom: 2rem;">There are no items that need review.</p>
+        <a href="/pricelists/upload" class="btn btn-primary">
+          <span class="material-symbols-outlined">upload</span>
+          Upload Another Pricelist
+        </a>
+      </div>
+
+      <!-- Items Container -->
+      <div id="items-container" class="items-grid">
+        <!-- Populated by JavaScript -->
+      </div>
+    </div>
+
+    <!-- Add New Product Modal -->
+    <div id="add-product-modal" class="modal hidden">
+      <div class="modal-overlay"></div>
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>Add New Product</h2>
+          <button class="btn-ghost" id="close-modal-btn">
+            <span class="material-symbols-outlined">close</span>
+          </button>
+        </div>
+        <div class="modal-body">
+          <form id="add-product-form">
+            <input type="hidden" id="modal-item-id" />
+            
+            <div class="form-group">
+              <label>From Pricelist</label>
+              <div class="info-box">
+                <div><strong>Supplier Code:</strong> <span id="modal-supplier-code"></span></div>
+                <div><strong>Description:</strong> <span id="modal-description"></span></div>
+                <div><strong>Price:</strong> <span id="modal-price"></span></div>
+                <div><strong>UOM:</strong> <span id="modal-uom"></span></div>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="new-sku">Internal SKU <span class="required">*</span></label>
+              <input type="text" id="new-sku" required placeholder="e.g., HW-HAM-003" />
+              <small>Unique product identifier for your catalog</small>
+            </div>
+
+            <div class="form-group">
+              <label for="new-description">Product Description <span class="required">*</span></label>
+              <textarea id="new-description" required rows="2"></textarea>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="new-category">Category <span class="required">*</span></label>
+                <select id="new-category" required>
+                  <option value="">Select...</option>
+                  <option value="Hand Tools">Hand Tools</option>
+                  <option value="Power Tools">Power Tools</option>
+                  <option value="Electrical">Electrical</option>
+                  <option value="Plumbing">Plumbing</option>
+                  <option value="Paint">Paint</option>
+                  <option value="Safety">Safety</option>
+                  <option value="Fasteners">Fasteners</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="new-uom">Unit of Measure <span class="required">*</span></label>
+                <select id="new-uom" required>
+                  <option value="PCS">Pieces (PCS)</option>
+                  <option value="SET">Set</option>
+                  <option value="BOX">Box</option>
+                  <option value="ROLL">Roll</option>
+                  <option value="GAL">Gallon</option>
+                  <option value="PAIR">Pair</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="new-reorder">Reorder Point <span class="required">*</span></label>
+              <input type="number" id="new-reorder" required min="0" value="10" />
+              <small>Alert when stock reaches this level</small>
+            </div>
+
+            <div class="modal-actions">
+              <button type="button" class="btn btn-secondary" id="cancel-add-btn">Cancel</button>
+              <button type="submit" class="btn btn-primary" id="submit-add-btn">
+                <span class="material-symbols-outlined">add</span>
+                Add Product
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</ModernLayout>
+
+<script>
+  import { db } from '../../services/firebase';
+  import { collection, getDocs, query, limit as firestoreLimit, doc, updateDoc } from 'firebase/firestore';
+  import { matcherService } from '../../services/matching/MatcherService';
+
+  // Elements
+  const loadingState = document.getElementById('loading-state')!;
+  const errorDisplay = document.getElementById('error-display')!;
+  const errorMessage = document.getElementById('error-message')!;
+  const content = document.getElementById('content')!;
+  const unmatchedCountEl = document.getElementById('unmatched-count')!;
+  const suggestedCountEl = document.getElementById('suggested-count')!;
+  const matchedCountEl = document.getElementById('matched-count')!;
+  const totalCountEl = document.getElementById('total-count')!;
+  const emptyState = document.getElementById('empty-state')!;
+  const itemsContainer = document.getElementById('items-container')!;
+  const refreshBtn = document.getElementById('refresh-btn')!;
+
+  // Filter elements
+  const statusFilterBtns = document.querySelectorAll('#status-filter .filter-btn');
+  const searchInput = document.getElementById('search-input') as HTMLInputElement;
+  const clearSearchBtn = document.getElementById('clear-search-btn')!;
+  const supplierFilter = document.getElementById('supplier-filter') as HTMLSelectElement;
+  const clearFiltersBtn = document.getElementById('clear-filters-btn')!;
+  const filterResultsText = document.getElementById('filter-results-text')!;
+
+  let allItems: any[] = [];
+  let currentFilters = {
+    status: 'all',
+    search: '',
+    supplier: 'all'
+  };
+
+  const formatCurrency = (value: number) => {
+    return new Intl.NumberFormat('en-PH', {
+      style: 'currency',
+      currency: 'PHP'
+    }).format(value);
+  };
+
+  // Render items
+  const renderItems = () => {
+    itemsContainer.innerHTML = '';
+
+    // Filter for items that need review (unmatched or suggested)
+    let itemsNeedingReview = allItems.filter(item => 
+      item.matchStatus === 'unmatched' || item.matchStatus === 'suggested'
+    );
+
+    // Apply filters
+    if (currentFilters.status !== 'all') {
+      itemsNeedingReview = itemsNeedingReview.filter(item => 
+        item.matchStatus === currentFilters.status
+      );
+    }
+
+    if (currentFilters.supplier !== 'all') {
+      itemsNeedingReview = itemsNeedingReview.filter(item => 
+        item.supplierId === currentFilters.supplier
+      );
+    }
+
+    if (currentFilters.search) {
+      const searchLower = currentFilters.search.toLowerCase();
+      itemsNeedingReview = itemsNeedingReview.filter(item => 
+        item.description?.toLowerCase().includes(searchLower) ||
+        item.supplierCode?.toLowerCase().includes(searchLower) ||
+        item.supplierName?.toLowerCase().includes(searchLower) ||
+        item.matchedSKU?.toLowerCase().includes(searchLower)
+      );
+    }
+
+    // Update filter results text
+    updateFilterResultsText(itemsNeedingReview.length);
+
+    if (itemsNeedingReview.length === 0) {
+      emptyState.classList.remove('hidden');
+      return;
+    }
+
+    emptyState.classList.add('hidden');
+
+    itemsNeedingReview.forEach(item => {
+      const statusColor = item.matchStatus === 'suggested' ? '#f59e0b' : '#ef4444';
+      const statusBg = item.matchStatus === 'suggested' ? '#fffbeb' : '#fef2f2';
+      const statusBorder = item.matchStatus === 'suggested' ? '#fcd34d' : '#fca5a5';
+      const statusText = item.matchStatus === 'suggested' ? 'SUGGESTED MATCH' : 'UNMATCHED';
+      const confidence = item.matchConfidence ? Math.round(item.matchConfidence * 100) : 0;
+
+      const card = document.createElement('div');
+      card.className = 'product-card';
+      card.innerHTML = `
+        <!-- Status Header -->
+        <div class="card-status-header" style="background: ${statusBg}; border-bottom: 2px solid ${statusBorder};">
+          <div class="status-badge" style="background: ${statusColor};">
+            <span class="material-symbols-outlined">
+              ${item.matchStatus === 'suggested' ? 'recommend' : 'link_off'}
+            </span>
+            <span>${statusText}</span>
+          </div>
+        </div>
+
+        <!-- Card Body -->
+        <div class="card-body">
+          <!-- Product Information -->
+          <div class="product-info-card">
+            <div class="card-section-title">
+              <span class="material-symbols-outlined">inventory_2</span>
+              Supplier Product Details
+            </div>
+            <h3 class="product-title">${item.description}</h3>
+            <div class="info-grid">
+              <div class="info-item">
+                <span class="info-label">Supplier Code</span>
+                <span class="info-value">${item.supplierCode}</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Supplier</span>
+                <span class="info-value">${item.supplierName || 'Unknown Supplier'}</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Price</span>
+                <span class="info-value price">${formatCurrency(item.price)}</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Unit</span>
+                <span class="info-value">${item.unitOfMeasure || 'PCS'}</span>
+              </div>
+            </div>
+          </div>
+
+          ${item.matchStatus === 'suggested' ? `
+            <!-- Suggested Match Card -->
+            <div class="match-card-inner">
+              <div class="card-section-title">
+                <span class="material-symbols-outlined">psychology</span>
+                Suggested Match
+                <span class="confidence-tag" style="background: ${confidence >= 80 ? '#d1fae5' : '#dbeafe'}; color: ${confidence >= 80 ? '#059669' : '#1e40af'};">
+                  ${confidence}% Match
+                </span>
+              </div>
+              <div class="matched-product-display">
+                <span class="material-symbols-outlined match-check-icon">check_circle</span>
+                <div class="matched-info">
+                  <div class="matched-sku">${item.matchedSKU || 'Unknown'}</div>
+                  <div class="matched-meta">Matched via ${item.matchMethod || 'fuzzy'} algorithm</div>
+                </div>
+              </div>
+              <div class="button-group">
+                <button class="btn btn-success btn-block confirm-match-btn" 
+                        data-item-id="${item.id}" 
+                        data-supplier-code="${item.supplierCode}" 
+                        data-sku="${item.matchedSKU}" 
+                        data-supplier-id="${item.supplierId}">
+                  <span class="material-symbols-outlined">check_circle</span>
+                  Confirm Match
+                </button>
+                <button class="btn btn-outline-secondary btn-block reject-match-btn" 
+                        data-item-id="${item.id}">
+                  <span class="material-symbols-outlined">cancel</span>
+                  Reject
+                </button>
+              </div>
+            </div>
+          ` : `
+            <!-- No Match Message -->
+            <div class="no-match-card-inner">
+              <div class="no-match-content">
+                <span class="material-symbols-outlined no-match-icon">search_off</span>
+                <div class="no-match-text">
+                  <strong>No Matches Found</strong>
+                  <p>This product wasn't automatically matched to any items in your catalog.</p>
+                </div>
+              </div>
+            </div>
+          `}
+        </div>
+
+        <!-- Card Footer -->
+        <div class="card-footer">
+          <button class="btn btn-primary btn-block add-new-product-btn" 
+                  data-item-id="${item.id}"
+                  data-supplier-code="${item.supplierCode}"
+                  data-description="${item.description}"
+                  data-price="${item.price}"
+                  data-uom="${item.unitOfMeasure || 'PCS'}"
+                  data-supplier-id="${item.supplierId}">
+            <span class="material-symbols-outlined">add_box</span>
+            Add as New Product
+          </button>
+        </div>
+      `;
+
+      itemsContainer.appendChild(card);
+    });
+
+    // Add event listeners
+    document.querySelectorAll('.confirm-match-btn').forEach(btn => {
+      btn.addEventListener('click', handleConfirmMatch);
+    });
+
+    document.querySelectorAll('.reject-match-btn').forEach(btn => {
+      btn.addEventListener('click', handleRejectMatch);
+    });
+
+    document.querySelectorAll('.add-new-product-btn').forEach(btn => {
+      btn.addEventListener('click', handleOpenAddProductModal);
+    });
+  };
+
+  // Handle confirm match
+  const handleConfirmMatch = async (e: Event) => {
+    const btn = e.currentTarget as HTMLButtonElement;
+    const itemId = btn.dataset.itemId!;
+    const supplierCode = btn.dataset.supplierCode!;
+    const sku = btn.dataset.sku!;
+    const supplierId = btn.dataset.supplierId!;
+
+    if (!confirm(`Confirm match: ${supplierCode} → ${sku}?`)) {
+      return;
+    }
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="material-symbols-outlined">refresh</span> Confirming...';
+
+    try {
+      // Confirm the match using MatcherService
+      await matcherService.confirmMatch(supplierCode, sku, supplierId);
+
+      // Update the pricelist item status
+      await updateDoc(doc(db!, 'pricelist_items', itemId), {
+        matchStatus: 'matched',
+        matchConfidence: 1.0,
+        matchMethod: 'manual'
+      });
+
+      // Reload data
+      await loadData();
+      
+      alert('Match confirmed successfully!');
+    } catch (error) {
+      console.error('Error confirming match:', error);
+      alert(`Error: ${error instanceof Error ? error.message : 'Failed to confirm match'}`);
+      btn.disabled = false;
+      btn.innerHTML = '<span class="material-symbols-outlined">check</span> Confirm Match';
+    }
+  };
+
+  // Handle reject match
+  const handleRejectMatch = async (e: Event) => {
+    const btn = e.currentTarget as HTMLButtonElement;
+    const itemId = btn.dataset.itemId!;
+
+    if (!confirm('Reject this suggestion and mark as unmatched?')) {
+      return;
+    }
+
+    btn.disabled = true;
+
+    try {
+      await updateDoc(doc(db!, 'pricelist_items', itemId), {
+        matchStatus: 'unmatched',
+        matchedSKU: null,
+        matchConfidence: null,
+        matchMethod: null
+      });
+
+      await loadData();
+      
+      alert('Suggestion rejected');
+    } catch (error) {
+      console.error('Error rejecting match:', error);
+      alert(`Error: ${error instanceof Error ? error.message : 'Failed to reject'}`);
+      btn.disabled = false;
+    }
+  };
+
+  // Load data from Firestore
+  const loadData = async () => {
+    try {
+      loadingState.classList.remove('hidden');
+      errorDisplay.classList.add('hidden');
+      content.classList.add('hidden');
+
+      // Fetch all pricelist items
+      const itemsRef = collection(db!, 'pricelist_items');
+      const itemsQuery = query(itemsRef, firestoreLimit(1000));
+      const itemsSnapshot = await getDocs(itemsQuery);
+
+      allItems = itemsSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+
+      // Calculate statistics
+      const unmatchedCount = allItems.filter(i => i.matchStatus === 'unmatched').length;
+      const suggestedCount = allItems.filter(i => i.matchStatus === 'suggested').length;
+      const matchedCount = allItems.filter(i => i.matchStatus === 'matched').length;
+
+      unmatchedCountEl.textContent = unmatchedCount.toString();
+      suggestedCountEl.textContent = suggestedCount.toString();
+      matchedCountEl.textContent = matchedCount.toString();
+      totalCountEl.textContent = allItems.length.toString();
+
+      // Populate supplier filter
+      populateSupplierFilter();
+
+      // Render items
+      renderItems();
+
+      // Show content
+      loadingState.classList.add('hidden');
+      content.classList.remove('hidden');
+
+    } catch (err) {
+      loadingState.classList.add('hidden');
+      errorDisplay.classList.remove('hidden');
+      
+      const errMsg = err instanceof Error ? err.message : 'Failed to load data';
+      errorMessage.textContent = errMsg;
+      
+      console.error('Error loading data:', err);
+    }
+  };
+
+  // Modal elements
+  const addProductModal = document.getElementById('add-product-modal')!;
+  const closeModalBtn = document.getElementById('close-modal-btn')!;
+  const cancelAddBtn = document.getElementById('cancel-add-btn')!;
+  const addProductForm = document.getElementById('add-product-form') as HTMLFormElement;
+  const modalItemId = document.getElementById('modal-item-id') as HTMLInputElement;
+  const modalSupplierCode = document.getElementById('modal-supplier-code')!;
+  const modalDescription = document.getElementById('modal-description')!;
+  const modalPrice = document.getElementById('modal-price')!;
+  const modalUom = document.getElementById('modal-uom')!;
+  const newSku = document.getElementById('new-sku') as HTMLInputElement;
+  const newDescription = document.getElementById('new-description') as HTMLTextAreaElement;
+  const newCategory = document.getElementById('new-category') as HTMLSelectElement;
+  const newUomSelect = document.getElementById('new-uom') as HTMLSelectElement;
+  const newReorder = document.getElementById('new-reorder') as HTMLInputElement;
+  const submitAddBtn = document.getElementById('submit-add-btn') as HTMLButtonElement;
+
+  // Handle open add product modal
+  const handleOpenAddProductModal = (e: Event) => {
+    const btn = e.currentTarget as HTMLButtonElement;
+    const itemId = btn.dataset.itemId!;
+    const supplierCode = btn.dataset.supplierCode!;
+    const description = btn.dataset.description!;
+    const price = btn.dataset.price!;
+    const uom = btn.dataset.uom!;
+
+    // Populate modal with item data
+    modalItemId.value = itemId;
+    modalSupplierCode.textContent = supplierCode;
+    modalDescription.textContent = description;
+    modalPrice.textContent = formatCurrency(parseFloat(price));
+    modalUom.textContent = uom;
+
+    // Pre-fill form fields
+    newDescription.value = description;
+    newUomSelect.value = uom;
+    
+    // Generate suggested SKU based on category and description
+    const suggestedSku = generateSuggestedSku(description);
+    newSku.value = suggestedSku;
+
+    // Show modal
+    addProductModal.classList.remove('hidden');
+  };
+
+  // Generate a suggested SKU from description
+  const generateSuggestedSku = (description: string): string => {
+    // Simple SKU generation: take first 2 words and add a number
+    const words = description.toUpperCase().split(' ').filter(w => w.length > 2);
+    const prefix = words.slice(0, 2).map(w => w.substring(0, 3)).join('-');
+    const timestamp = Date.now().toString().slice(-4);
+    return `${prefix}-${timestamp}`;
+  };
+
+  // Handle close modal
+  const handleCloseModal = () => {
+    addProductModal.classList.add('hidden');
+    addProductForm.reset();
+  };
+
+  // Handle add product form submission
+  const handleAddProduct = async (e: Event) => {
+    e.preventDefault();
+
+    const itemId = modalItemId.value;
+    const sku = newSku.value.trim();
+    const description = newDescription.value.trim();
+    const category = newCategory.value;
+    const uom = newUomSelect.value;
+    const reorderPoint = parseInt(newReorder.value);
+
+    if (!sku || !description || !category || !uom) {
+      alert('Please fill in all required fields');
+      return;
+    }
+
+    submitAddBtn.disabled = true;
+    submitAddBtn.innerHTML = '<span class="material-symbols-outlined">refresh</span> Creating...';
+
+    try {
+      // Get the item data to extract supplier info
+      const item = allItems.find(i => i.id === itemId);
+      if (!item) {
+        throw new Error('Item not found');
+      }
+
+      // Import ProductService
+      const { productService } = await import('../../services/products/ProductService');
+      
+      // Create the product
+      const newProduct = await productService.createProduct({
+        sku,
+        description,
+        category,
+        unitOfMeasure: uom,
+        reorderPoint,
+        isActive: true,
+        supplierMappings: []
+      });
+
+      console.log('Product created:', newProduct);
+
+      // Add supplier mapping
+      await productService.addSupplierMapping(sku, {
+        supplierId: item.supplierId,
+        supplierCode: item.supplierCode,
+        lastCost: item.price,
+        lastCostDate: new Date()
+      });
+
+      console.log('Supplier mapping added');
+
+      // Update the pricelist item to mark as matched
+      await updateDoc(doc(db!, 'pricelist_items', itemId), {
+        matchStatus: 'matched',
+        matchedSKU: sku,
+        matchConfidence: 1.0,
+        matchMethod: 'manual'
+      });
+
+      console.log('Pricelist item updated');
+
+      // Close modal and reload data
+      handleCloseModal();
+      await loadData();
+      
+      alert(`Product created successfully!\nSKU: ${sku}`);
+    } catch (error) {
+      console.error('Error creating product:', error);
+      alert(`Error: ${error instanceof Error ? error.message : 'Failed to create product'}`);
+      submitAddBtn.disabled = false;
+      submitAddBtn.innerHTML = '<span class="material-symbols-outlined">add</span> Add Product';
+    }
+  };
+
+  // Event listeners
+  refreshBtn.addEventListener('click', loadData);
+  closeModalBtn.addEventListener('click', handleCloseModal);
+  cancelAddBtn.addEventListener('click', handleCloseModal);
+  addProductForm.addEventListener('submit', handleAddProduct);
+
+  // Filter event listeners
+  statusFilterBtns.forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const target = e.currentTarget as HTMLButtonElement;
+      const status = target.dataset.status!;
+      
+      // Update active state
+      statusFilterBtns.forEach(b => b.classList.remove('active'));
+      target.classList.add('active');
+      
+      // Update filter
+      currentFilters.status = status;
+      renderItems();
+    });
+  });
+
+  searchInput.addEventListener('input', (e) => {
+    const value = (e.target as HTMLInputElement).value;
+    currentFilters.search = value;
+    
+    // Show/hide clear button
+    if (value) {
+      clearSearchBtn.classList.remove('hidden');
+    } else {
+      clearSearchBtn.classList.add('hidden');
+    }
+    
+    renderItems();
+  });
+
+  clearSearchBtn.addEventListener('click', () => {
+    searchInput.value = '';
+    currentFilters.search = '';
+    clearSearchBtn.classList.add('hidden');
+    renderItems();
+  });
+
+  supplierFilter.addEventListener('change', (e) => {
+    currentFilters.supplier = (e.target as HTMLSelectElement).value;
+    renderItems();
+  });
+
+  clearFiltersBtn.addEventListener('click', () => {
+    // Reset all filters
+    currentFilters = {
+      status: 'all',
+      search: '',
+      supplier: 'all'
+    };
+    
+    // Reset UI
+    statusFilterBtns.forEach(btn => {
+      if (btn.getAttribute('data-status') === 'all') {
+        btn.classList.add('active');
+      } else {
+        btn.classList.remove('active');
+      }
+    });
+    searchInput.value = '';
+    clearSearchBtn.classList.add('hidden');
+    supplierFilter.value = 'all';
+    
+    renderItems();
+  });
+
+  // Helper function to populate supplier filter
+  const populateSupplierFilter = () => {
+    const suppliers = new Map<string, string>();
+    
+    allItems.forEach(item => {
+      if (item.supplierId && item.supplierName) {
+        suppliers.set(item.supplierId, item.supplierName);
+      }
+    });
+
+    // Clear existing options (except "All Suppliers")
+    supplierFilter.innerHTML = '<option value="all">All Suppliers</option>';
+    
+    // Add supplier options
+    suppliers.forEach((name, id) => {
+      const option = document.createElement('option');
+      option.value = id;
+      option.textContent = name;
+      supplierFilter.appendChild(option);
+    });
+  };
+
+  // Helper function to update filter results text
+  const updateFilterResultsText = (count: number) => {
+    const total = allItems.filter(item => 
+      item.matchStatus === 'unmatched' || item.matchStatus === 'suggested'
+    ).length;
+    
+    if (count === total) {
+      filterResultsText.textContent = `Showing all ${total} items`;
+    } else {
+      filterResultsText.textContent = `Showing ${count} of ${total} items`;
+    }
+  };
+
+  // Close modal when clicking overlay
+  addProductModal.addEventListener('click', (e) => {
+    if (e.target === addProductModal) {
+      handleCloseModal();
+    }
+  });
+
+  // Load data on page load
+  loadData();
+</script>
+
+<style>
+  .matching-page {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 0 1.5rem;
+  }
+
+  .page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+    padding-bottom: 1.5rem;
+    border-bottom: 2px solid var(--border-color);
+  }
+
+  .page-header h1 {
+    margin: 0;
+    font-size: 1.875rem;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+  }
+
+  .subtitle {
+    margin: 0.5rem 0 0 0;
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+  }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.25rem;
+    margin-bottom: 2rem;
+  }
+
+  .stat-card {
+    background: linear-gradient(135deg, var(--bg-secondary) 0%, white 100%);
+    border: 1px solid var(--border-color);
+    border-radius: 1rem;
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+
+  .stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15);
+  }
+
+  .stat-icon {
+    font-size: 48px;
+    margin-bottom: 0.75rem;
+  }
+
+  .stat-label {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+  }
+
+  .stat-value {
+    font-size: 2rem;
+    font-weight: 700;
+  }
+
+  /* Filters Section */
+  .filters-section {
+    margin-bottom: 2rem;
+    padding: 2rem;
+  }
+
+  .filters-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 1rem;
+    font-weight: 700;
+    color: #111827;
+    margin-bottom: 1.75rem;
+  }
+
+  .filters-header .material-symbols-outlined {
+    font-size: 24px;
+    color: #4f46e5;
+  }
+
+  .filters-content {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 1.25rem;
+  }
+
+  .filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .filter-label {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.25rem;
+  }
+
+  .filter-buttons {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .filter-btn {
+    flex: 1;
+    min-width: 120px;
+    padding: 0.625rem 1rem;
+    background: white;
+    border: 2px solid #e5e7eb;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #6b7280;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+  }
+
+  .filter-btn .material-symbols-outlined {
+    font-size: 18px;
+  }
+
+  .filter-btn:hover {
+    background: #f9fafb;
+    border-color: #d1d5db;
+  }
+
+  .filter-btn.active {
+    background: #4f46e5;
+    border-color: #4f46e5;
+    color: white;
+  }
+
+  .search-input-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+
+  .search-icon {
+    position: absolute;
+    left: 1rem;
+    color: #9ca3af;
+    font-size: 20px;
+    pointer-events: none;
+  }
+
+  .search-input {
+    width: 100%;
+    padding: 0.75rem 1rem 0.75rem 3rem;
+    border: 2px solid #e5e7eb;
+    border-radius: 8px;
+    font-size: 0.9375rem;
+    transition: all 0.2s;
+  }
+
+  .search-input:focus {
+    outline: none;
+    border-color: #4f46e5;
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+  }
+
+  .clear-search-btn {
+    position: absolute;
+    right: 0.5rem;
+    padding: 0.375rem;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: #9ca3af;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .clear-search-btn:hover {
+    background: #f3f4f6;
+    color: #6b7280;
+  }
+
+  .clear-search-btn .material-symbols-outlined {
+    font-size: 18px;
+  }
+
+  .filter-select {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    border: 2px solid #e5e7eb;
+    border-radius: 8px;
+    font-size: 0.9375rem;
+    font-weight: 500;
+    color: #111827;
+    background: white;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .filter-select:focus {
+    outline: none;
+    border-color: #4f46e5;
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+  }
+
+  .filter-results {
+    padding-top: 1.5rem;
+    margin-top: 1.5rem;
+    border-top: 1px solid #e5e7eb;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .filter-results span {
+    font-size: 0.9375rem;
+    color: #6b7280;
+    font-weight: 500;
+  }
+
+  .btn-text {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.5rem 0.75rem;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: #4f46e5;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .btn-text:hover {
+    background: #eff6ff;
+  }
+
+  .btn-text .material-symbols-outlined {
+    font-size: 18px;
+  }
+
+  .stat-value {
+    font-size: 2rem;
+    font-weight: 700;
+  }
+
+  .loading-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 2rem;
+  }
+
+  .spinner {
+    width: 48px;
+    height: 48px;
+    border: 4px solid #e5e7eb;
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .alert {
+    padding: 1rem;
+    border-radius: 0.5rem;
+    display: flex;
+    align-items: start;
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .alert-error {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #991b1b;
+  }
+
+  /* Items Grid Layout */
+  .items-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+  }
+
+  /* Product Card - Main Container */
+  .product-card {
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 16px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    overflow: hidden;
+    transition: box-shadow 0.3s, transform 0.2s;
+  }
+
+  .product-card:hover {
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+    transform: translateY(-2px);
+  }
+
+  /* Card Status Header */
+  .card-status-header {
+    padding: 1.25rem 1.5rem;
+    display: flex;
+    align-items: center;
+  }
+
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border-radius: 20px;
+    color: white;
+    font-weight: 700;
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .status-badge .material-symbols-outlined {
+    font-size: 18px;
+  }
+
+  /* Card Body */
+  .card-body {
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  /* Product Info Card (Inner Card) */
+  .product-info-card {
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 1.5rem;
+  }
+
+  .card-section-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 1rem;
+  }
+
+  .card-section-title .material-symbols-outlined {
+    font-size: 18px;
+  }
+
+  .confidence-tag {
+    margin-left: auto;
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+
+  .product-title {
+    margin: 0 0 1.25rem 0;
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #111827;
+    line-height: 1.4;
+  }
+
+  .info-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+  }
+
+  .info-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+  }
+
+  .info-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .info-value {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: #111827;
+  }
+
+  .info-value.price {
+    color: #059669;
+    font-size: 1.125rem;
+  }
+
+  /* Match Card Inner */
+  .match-card-inner {
+    background: #eff6ff;
+    border: 2px solid #bfdbfe;
+    border-radius: 12px;
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .matched-product-display {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1.25rem;
+    background: white;
+    border: 2px solid #3b82f6;
+    border-radius: 10px;
+  }
+
+  .match-check-icon {
+    font-size: 40px !important;
+    color: #3b82f6;
+    flex-shrink: 0;
+  }
+
+  .matched-info {
+    flex: 1;
+  }
+
+  .matched-sku {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #1e40af;
+    margin-bottom: 0.25rem;
+  }
+
+  .matched-meta {
+    font-size: 0.8125rem;
+    color: #6b7280;
+  }
+
+  /* No Match Card Inner */
+  .no-match-card-inner {
+    background: #f9fafb;
+    border: 2px dashed #d1d5db;
+    border-radius: 12px;
+    padding: 2rem;
+  }
+
+  .no-match-content {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+  }
+
+  .no-match-icon {
+    font-size: 64px !important;
+    color: #9ca3af;
+    flex-shrink: 0;
+  }
+
+  .no-match-text strong {
+    display: block;
+    font-size: 1.125rem;
+    color: #111827;
+    margin-bottom: 0.5rem;
+  }
+
+  .no-match-text p {
+    margin: 0;
+    font-size: 0.9375rem;
+    color: #6b7280;
+    line-height: 1.5;
+  }
+
+  /* Button Group */
+  .button-group {
+    display: flex;
+    gap: 0.75rem;
+  }
+
+  .btn-block {
+    flex: 1;
+    padding: 0.875rem 1.25rem;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    transition: all 0.2s;
+    border: none;
+    cursor: pointer;
+  }
+
+  .btn-block .material-symbols-outlined {
+    font-size: 20px;
+  }
+
+  .btn-success {
+    background: #10b981;
+    color: white;
+  }
+
+  .btn-success:hover {
+    background: #059669;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+  }
+
+  .btn-outline-secondary {
+    background: white;
+    color: #6b7280;
+    border: 2px solid #d1d5db !important;
+  }
+
+  .btn-outline-secondary:hover {
+    background: #f9fafb;
+    border-color: #9ca3af !important;
+  }
+
+  /* Card Footer */
+  .card-footer {
+    padding: 1.5rem;
+    border-top: 1px solid #e5e7eb;
+    background: #fafbfc;
+  }
+
+  .card-footer .btn-block {
+    width: 100%;
+  }
+
+  .btn-primary {
+    background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
+    color: white;
+  }
+
+  .btn-primary:hover {
+    background: linear-gradient(135deg, #4338ca 0%, #4f46e5 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
+  }
+
+  /* Remove all old unused styles */
+  .match-card,
+  .card-container,
+  .product-section,
+  .status-indicator,
+  .status-text,
+  .product-header,
+  .product-info-grid,
+  .info-row,
+  .action-section,
+  .match-suggestion-box,
+  .suggestion-header,
+  .confidence-badge,
+  .suggested-sku-display,
+  .check-icon,
+  .sku-text,
+  .match-method,
+  .no-match-box,
+  .no-match-icon-large,
+  .no-match-message,
+  .action-buttons,
+  .add-product-section,
+  .btn-large,
+  .btn-outline {
+    /* Cleaned up old styles */
+  }
+
+  /* Modal Styles */
+  .modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+  }
+
+  .modal-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(4px);
+  }
+
+  .modal-content {
+    position: relative;
+    background: white;
+    border-radius: 1rem;
+    max-width: 600px;
+    width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2);
+  }
+
+  .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .modal-header h2 {
+    margin: 0;
+    font-size: 1.5rem;
+    color: var(--text-primary);
+  }
+
+  .modal-body {
+    padding: 1.5rem;
+  }
+
+  .info-box {
+    background: #f0f9ff;
+    border: 1px solid #bae6fd;
+    border-radius: 0.5rem;
+    padding: 1rem;
+    font-size: 0.875rem;
+    color: #0c4a6e;
+  }
+
+  .info-box div {
+    margin-bottom: 0.5rem;
+  }
+
+  .info-box div:last-child {
+    margin-bottom: 0;
+  }
+
+  .form-group {
+    margin-bottom: 1.25rem;
+  }
+
+  .form-group label {
+    display: block;
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-bottom: 0.5rem;
+  }
+
+  .required {
+    color: #ef4444;
+  }
+
+  .form-group input,
+  .form-group textarea,
+  .form-group select {
+    width: 100%;
+    padding: 0.625rem 0.875rem;
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    font-size: 0.9375rem;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+
+  .form-group input:focus,
+  .form-group textarea:focus,
+  .form-group select:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+  }
+
+  .form-group small {
+    display: block;
+    margin-top: 0.375rem;
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+  }
+
+  .form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+  }
+
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border-color);
+  }
+
+  .btn-ghost {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    padding: 0.5rem;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+
+  .btn-ghost:hover {
+    background: var(--bg-secondary);
+  }
+
+  .hidden {
+    display: none !important;
+  }
+
+  @media (max-width: 768px) {
+    .page-header {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 1rem;
+    }
+
+    .stats-grid {
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .filters-content {
+      grid-template-columns: 1fr;
+    }
+
+    .filter-btn {
+      min-width: auto;
+    }
+
+    .filter-results {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.75rem;
+    }
+
+    .info-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .button-group {
+      flex-direction: column;
+    }
+
+    .no-match-content {
+      flex-direction: column;
+      text-align: center;
+    }
+
+    .form-row {
+      grid-template-columns: 1fr;
+    }
+
+    .modal-content {
+      max-height: 95vh;
+    }
+
+    .product-card {
+      margin-bottom: 1.5rem;
+    }
+
+    .card-body {
+      padding: 1.25rem;
+    }
+
+    .card-footer {
+      padding: 1.25rem;
+    }
+  }
+
+  @media (max-width: 480px) {
+    .stats-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .product-title {
+      font-size: 1.125rem;
+    }
+
+    .card-status-header {
+      padding: 1rem 1.25rem;
+    }
+
+    .items-grid {
+      gap: 1.5rem;
+    }
+  }
+</style>

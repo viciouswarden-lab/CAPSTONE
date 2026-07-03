@@ -1,0 +1,330 @@
+---
+/**
+ * Invoices List Page
+ * 
+ * Displays list of all uploaded invoices with filtering and sorting.
+ * 
+ * Requirements: 10.1
+ */
+
+import MainLayout from '../../layouts/MainLayout.astro';
+import ErrorMessage from '../../components/ErrorMessage.astro';
+import { db } from '../../services/firebase';
+import { collection, getDocs, query, orderBy, limit } from 'firebase/firestore';
+
+// Fetch invoices
+let invoices: any[] = [];
+let fetchError: string | null = null;
+
+try {
+  const invoicesRef = collection(db, 'invoices');
+  const q = query(invoicesRef, orderBy('processedAt', 'desc'), limit(50));
+  const querySnapshot = await getDocs(q);
+  
+  invoices = querySnapshot.docs.map(doc => {
+    const data = doc.data();
+    return {
+      invoiceId: doc.id,
+      ...data,
+      invoiceDate: data.invoiceDate?.toDate ? data.invoiceDate.toDate() : new Date(data.invoiceDate),
+      processedAt: data.processedAt?.toDate ? data.processedAt.toDate() : new Date(data.processedAt),
+    };
+  });
+} catch (error) {
+  console.error('Error fetching invoices:', error);
+  fetchError = 'Failed to load invoices';
+}
+
+// Format currency
+const formatCurrency = (value: number) => {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+  }).format(value);
+};
+
+// Format date
+const formatDate = (date: Date) => {
+  return new Intl.DateTimeFormat('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  }).format(date);
+};
+---
+
+<MainLayout title="Invoices" requireAuth={true} requiredRole="Clerk">
+  <div class="invoices-page">
+    <!-- Page Header -->
+    <div class="page-header">
+      <div class="header-content">
+        <div>
+          <h1>Invoices</h1>
+          <p class="text-muted">
+            View and manage uploaded supplier invoices
+          </p>
+        </div>
+        <a href="/invoices/upload" class="btn btn-primary">
+          <span class="btn-icon">📤</span>
+          Upload Invoice
+        </a>
+      </div>
+    </div>
+
+    {fetchError && (
+      <ErrorMessage message={fetchError} type="error" />
+    )}
+
+    <!-- Invoices Table -->
+    <div class="card">
+      <div class="table-header">
+        <h2>Recent Invoices</h2>
+        <p class="text-muted text-sm">Showing last 50 invoices</p>
+      </div>
+
+      {invoices.length === 0 ? (
+        <div class="empty-state">
+          <p class="empty-icon">📄</p>
+          <h3>No Invoices Yet</h3>
+          <p class="text-muted">
+            Upload your first invoice to get started
+          </p>
+          <a href="/invoices/upload" class="btn btn-primary mt-md">
+            Upload Invoice
+          </a>
+        </div>
+      ) : (
+        <div class="table-wrapper">
+          <table class="invoices-table">
+            <thead>
+              <tr>
+                <th>Invoice #</th>
+                <th>Supplier</th>
+                <th>Date</th>
+                <th class="text-right">Total</th>
+                <th class="text-center">Line Items</th>
+                <th class="text-center">Status</th>
+                <th>Processed</th>
+                <th class="text-center">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {invoices.map(invoice => (
+                <tr>
+                  <td class="invoice-number">
+                    <a href={`/invoices/${invoice.invoiceId}`}>
+                      {invoice.invoiceNumber}
+                    </a>
+                  </td>
+                  <td>{invoice.supplierName}</td>
+                  <td>{formatDate(invoice.invoiceDate)}</td>
+                  <td class="text-right">{formatCurrency(invoice.totalAmount)}</td>
+                  <td class="text-center">{invoice.lineItems?.length || 0}</td>
+                  <td class="text-center">
+                    {invoice.hasVariance ? (
+                      <span class="status-badge variance">Has Variance</span>
+                    ) : (
+                      <span class="status-badge ok">OK</span>
+                    )}
+                  </td>
+                  <td>{formatDate(invoice.processedAt)}</td>
+                  <td class="text-center">
+                    <a 
+                      href={`/invoices/${invoice.invoiceId}`}
+                      class="btn-link"
+                      title="View Details"
+                    >
+                      View
+                    </a>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  </div>
+</MainLayout>
+
+<style>
+  .invoices-page {
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+
+  .page-header {
+    margin-bottom: var(--spacing-2xl);
+  }
+
+  .header-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: var(--spacing-md);
+  }
+
+  .header-content h1 {
+    margin-bottom: var(--spacing-xs);
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    justify-content: center;
+    padding: var(--spacing-sm) var(--spacing-lg);
+    font-size: 0.875rem;
+    font-weight: 500;
+    border: none;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all 0.2s;
+    text-decoration: none;
+  }
+
+  .btn-primary {
+    background-color: var(--color-primary);
+    color: white;
+  }
+
+  .btn-primary:hover {
+    background-color: var(--color-primary-dark);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+  }
+
+  .btn-icon {
+    font-size: 1rem;
+  }
+
+  .table-header {
+    margin-bottom: var(--spacing-md);
+  }
+
+  .table-header h2 {
+    margin-bottom: var(--spacing-xs);
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: var(--spacing-2xl);
+  }
+
+  .empty-icon {
+    font-size: 4rem;
+    margin-bottom: var(--spacing-md);
+  }
+
+  .empty-state h3 {
+    margin-bottom: var(--spacing-sm);
+    color: var(--color-text);
+  }
+
+  .table-wrapper {
+    overflow-x: auto;
+    margin-top: var(--spacing-md);
+  }
+
+  .invoices-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+  }
+
+  .invoices-table thead {
+    background-color: var(--color-surface);
+    border-bottom: 2px solid var(--color-border);
+  }
+
+  .invoices-table th {
+    padding: var(--spacing-sm) var(--spacing-md);
+    text-align: left;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+    white-space: nowrap;
+  }
+
+  .invoices-table td {
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .invoices-table tbody tr {
+    transition: background-color 0.15s;
+  }
+
+  .invoices-table tbody tr:hover {
+    background-color: var(--color-surface);
+  }
+
+  .invoice-number a {
+    color: var(--color-primary);
+    font-weight: 500;
+    text-decoration: none;
+  }
+
+  .invoice-number a:hover {
+    text-decoration: underline;
+  }
+
+  .status-badge {
+    display: inline-block;
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    font-weight: 500;
+    text-transform: uppercase;
+  }
+
+  .status-badge.ok {
+    background-color: #d1fae5;
+    color: #065f46;
+  }
+
+  .status-badge.variance {
+    background-color: #fee2e2;
+    color: #991b1b;
+  }
+
+  .btn-link {
+    color: var(--color-primary);
+    text-decoration: none;
+    font-weight: 500;
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--radius-sm);
+    transition: background-color 0.2s;
+  }
+
+  .btn-link:hover {
+    background-color: var(--color-surface);
+    text-decoration: underline;
+  }
+
+  @media (max-width: 768px) {
+    .header-content {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .btn {
+      width: 100%;
+    }
+
+    .invoices-table {
+      font-size: 0.75rem;
+    }
+
+    .invoices-table th,
+    .invoices-table td {
+      padding: var(--spacing-xs) var(--spacing-sm);
+    }
+
+    /* Hide less important columns on mobile */
+    .invoices-table th:nth-child(7),
+    .invoices-table td:nth-child(7) {
+      display: none;
+    }
+  }
+</style>

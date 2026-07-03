@@ -1,0 +1,1064 @@
+---
+/**
+ * Pricing Management Page - Client-Side
+ * 
+ * Displays products with current pricing across tiers.
+ * Allows updating prices with margin calculations.
+ */
+
+import ModernLayout from '../../layouts/ModernLayout.astro';
+
+Astro.response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+---
+
+<ModernLayout title="Pricing">
+  <div class="pricing-page">
+    <!-- Page Header -->
+    <div class="page-header">
+      <div>
+        <h1>
+          <span class="material-symbols-outlined" style="vertical-align: middle; margin-right: 0.5rem;">sell</span>
+          Pricing Management
+        </h1>
+        <p class="subtitle">Manage product pricing and margins across all tiers</p>
+      </div>
+      <div class="page-actions">
+        <button class="btn btn-secondary" id="export-btn">
+          <span class="material-symbols-outlined">download</span>
+          Export
+        </button>
+        <button class="btn btn-primary" id="update-prices-btn">
+          <span class="material-symbols-outlined">edit</span>
+          Update Prices
+        </button>
+      </div>
+    </div>
+
+    <!-- Loading State -->
+    <div id="loading-state" class="loading-container">
+      <div class="spinner"></div>
+      <p style="margin-top: 1rem; color: var(--text-secondary);">Loading pricing data...</p>
+    </div>
+
+    <!-- Error Display -->
+    <div id="error-display" class="hidden">
+      <div class="alert alert-error">
+        <span class="material-symbols-outlined">error</span>
+        <div>
+          <strong>Error:</strong> <span id="error-message"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Content -->
+    <div id="content" class="hidden">
+      <!-- Stats -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <span class="material-symbols-outlined stat-icon" style="color: #3b82f6;">sell</span>
+          <div class="stat-label">Total Products</div>
+          <div class="stat-value" id="total-products">0</div>
+        </div>
+
+        <div class="stat-card">
+          <span class="material-symbols-outlined stat-icon" style="color: #10b981;">trending_up</span>
+          <div class="stat-label">Avg Margin</div>
+          <div class="stat-value" id="avg-margin" style="color: #10b981;">0%</div>
+        </div>
+
+        <div class="stat-card">
+          <span class="material-symbols-outlined stat-icon" style="color: #f59e0b;">inventory</span>
+          <div class="stat-label">With Standard Price</div>
+          <div class="stat-value" id="standard-count" style="color: #f59e0b;">0</div>
+        </div>
+
+        <div class="stat-card">
+          <span class="material-symbols-outlined stat-icon" style="color: #8b5cf6;">local_shipping</span>
+          <div class="stat-label">With Wholesale Price</div>
+          <div class="stat-value" id="wholesale-count" style="color: #8b5cf6;">0</div>
+        </div>
+      </div>
+
+      <!-- Search and Filters -->
+      <div class="card filters-card">
+        <div class="search-bar">
+          <div class="search-input-wrapper">
+            <span class="material-symbols-outlined search-icon">search</span>
+            <input type="text" id="search-input" class="search-input" 
+                   placeholder="Search by SKU or product name..." />
+          </div>
+          <select id="category-filter" class="form-select">
+            <option value="all">All Categories</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Pricing Table -->
+      <div class="card">
+        <div class="card-header">
+          <h2>Product Pricing</h2>
+          <span id="product-count-badge" class="badge badge-info">0 products</span>
+        </div>
+        <div id="table-container" class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Product</th>
+                <th>Category</th>
+                <th>Supplier Cost</th>
+                <th>Standard Price</th>
+                <th>Standard Margin</th>
+                <th>Wholesale Price</th>
+                <th>Wholesale Margin</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="pricing-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Update Price Modal -->
+    <div id="update-price-modal" class="modal hidden">
+      <div class="modal-overlay"></div>
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>Update Prices</h2>
+          <button class="btn-ghost" id="close-modal-btn">
+            <span class="material-symbols-outlined">close</span>
+          </button>
+        </div>
+        <div class="modal-body">
+          <form id="update-price-form">
+            <input type="hidden" id="modal-sku" />
+            
+            <div class="product-info">
+              <h3 id="modal-product-name"></h3>
+              <p class="text-muted">SKU: <span id="modal-product-sku"></span></p>
+            </div>
+
+            <div class="price-section">
+              <h4>Current Supplier Cost</h4>
+              <div class="cost-display">₱<span id="modal-supplier-cost">0.00</span></div>
+            </div>
+
+            <div class="price-tier-section">
+              <h4>
+                <span class="material-symbols-outlined" style="vertical-align: middle;">storefront</span>
+                Standard Tier
+              </h4>
+              <div class="price-inputs">
+                <div class="form-group">
+                  <label>Price (₱)</label>
+                  <input type="number" id="standard-price" class="form-input" min="0" step="0.01" />
+                </div>
+                <div class="form-group">
+                  <label>Margin (%)</label>
+                  <input type="number" id="standard-margin" class="form-input" min="0" step="0.1" />
+                </div>
+                <div class="margin-display">
+                  <span id="standard-margin-display" class="badge badge-success">0%</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="price-tier-section">
+              <h4>
+                <span class="material-symbols-outlined" style="vertical-align: middle;">local_shipping</span>
+                Wholesale Tier
+              </h4>
+              <div class="price-inputs">
+                <div class="form-group">
+                  <label>Price (₱)</label>
+                  <input type="number" id="wholesale-price" class="form-input" min="0" step="0.01" />
+                </div>
+                <div class="form-group">
+                  <label>Margin (%)</label>
+                  <input type="number" id="wholesale-margin" class="form-input" min="0" step="0.1" />
+                </div>
+                <div class="margin-display">
+                  <span id="wholesale-margin-display" class="badge badge-info">0%</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="modal-actions">
+              <button type="button" class="btn btn-secondary" id="cancel-btn">Cancel</button>
+              <button type="submit" class="btn btn-primary" id="save-btn">
+                <span class="material-symbols-outlined">save</span>
+                Save Prices
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</ModernLayout>
+
+<script>
+  import { db } from '../../services/firebase';
+  import { collection, getDocs, query, where, orderBy, doc, setDoc, Timestamp } from 'firebase/firestore';
+  import { PricingService } from '../../services/pricing/PricingService';
+
+  const loadingState = document.getElementById('loading-state')!;
+  const errorDisplay = document.getElementById('error-display')!;
+  const errorMessage = document.getElementById('error-message')!;
+  const content = document.getElementById('content')!;
+  const pricingTbody = document.getElementById('pricing-tbody')!;
+  const searchInput = document.getElementById('search-input') as HTMLInputElement;
+  const categoryFilter = document.getElementById('category-filter') as HTMLSelectElement;
+  const updatePricesBtn = document.getElementById('update-prices-btn')!;
+  const updatePriceModal = document.getElementById('update-price-modal')!;
+  const closeModalBtn = document.getElementById('close-modal-btn')!;
+  const cancelBtn = document.getElementById('cancel-btn')!;
+  const updatePriceForm = document.getElementById('update-price-form') as HTMLFormElement;
+
+  let allProducts: any[] = [];
+  let filteredProducts: any[] = [];
+  let pricingData = new Map<string, any>();
+  let supplierCosts = new Map<string, number>();
+  const pricingService = new PricingService();
+
+  const formatCurrency = (value: number) => {
+    return `₱${value.toFixed(2)}`;
+  };
+
+  const calculateMargin = (price: number, cost: number): number => {
+    if (cost === 0) return 0;
+    return ((price - cost) / cost) * 100;
+  };
+
+  const loadData = async () => {
+    try {
+      loadingState.classList.remove('hidden');
+      errorDisplay.classList.add('hidden');
+
+      // Load products
+      const productsRef = collection(db!, 'products');
+      const productsQuery = query(productsRef, where('isActive', '==', true), orderBy('sku'));
+      const productsSnap = await getDocs(productsQuery);
+      allProducts = productsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+      // Load pricing data
+      const pricingRef = collection(db!, 'pricing');
+      const pricingSnap = await getDocs(pricingRef);
+      pricingSnap.forEach(doc => {
+        const data = doc.data();
+        const key = `${data.sku}_${data.priceTier}`;
+        pricingData.set(key, data);
+      });
+
+      // Load supplier costs from supplier mappings
+      for (const product of allProducts) {
+        if (product.supplierMappings && product.supplierMappings.length > 0) {
+          // Get the most recent supplier cost
+          const recentMapping = product.supplierMappings.sort((a: any, b: any) => {
+            const dateA = a.lastCostDate?.toDate?.() || new Date(0);
+            const dateB = b.lastCostDate?.toDate?.() || new Date(0);
+            return dateB.getTime() - dateA.getTime();
+          })[0];
+          supplierCosts.set(product.sku, recentMapping.lastCost || 0);
+        } else {
+          supplierCosts.set(product.sku, 0);
+        }
+      }
+
+      // Populate category filter
+      const categories = new Set(allProducts.map(p => p.category).filter(Boolean));
+      categories.forEach(category => {
+        const option = document.createElement('option');
+        option.value = category;
+        option.textContent = category;
+        categoryFilter.appendChild(option);
+      });
+
+      filteredProducts = allProducts;
+      renderTable();
+      updateStats();
+
+      loadingState.classList.add('hidden');
+      content.classList.remove('hidden');
+    } catch (err) {
+      loadingState.classList.add('hidden');
+      errorDisplay.classList.remove('hidden');
+      errorMessage.textContent = err instanceof Error ? err.message : 'Failed to load data';
+      console.error('Error loading data:', err);
+    }
+  };
+
+  const renderTable = () => {
+    pricingTbody.innerHTML = '';
+
+    filteredProducts.forEach(product => {
+      const supplierCost = supplierCosts.get(product.sku) || 0;
+      const standardPricing = pricingData.get(`${product.sku}_standard`);
+      const wholesalePricing = pricingData.get(`${product.sku}_wholesale`);
+
+      const standardPrice = standardPricing?.retailPrice || 0;
+      const wholesalePrice = wholesalePricing?.retailPrice || 0;
+
+      const standardMargin = standardPrice > 0 ? calculateMargin(standardPrice, supplierCost) : 0;
+      const wholesaleMargin = wholesalePrice > 0 ? calculateMargin(wholesalePrice, supplierCost) : 0;
+
+      const row = document.createElement('tr');
+      row.innerHTML = `
+        <td>
+          <div class="product-cell">
+            <span class="material-symbols-outlined product-icon">sell</span>
+            <div>
+              <div class="product-name">${product.description}</div>
+              <div class="product-sku">${product.sku}</div>
+            </div>
+          </div>
+        </td>
+        <td>${product.category || 'Uncategorized'}</td>
+        <td class="font-semibold">${formatCurrency(supplierCost)}</td>
+        <td class="price-cell">${standardPrice > 0 ? formatCurrency(standardPrice) : '-'}</td>
+        <td>
+          ${standardPrice > 0 ? `<span class="badge ${standardMargin < 0 ? 'badge-danger' : 'badge-success'}">${standardMargin.toFixed(1)}%</span>` : '-'}
+        </td>
+        <td class="price-cell">${wholesalePrice > 0 ? formatCurrency(wholesalePrice) : '-'}</td>
+        <td>
+          ${wholesalePrice > 0 ? `<span class="badge ${wholesaleMargin < 0 ? 'badge-danger' : 'badge-info'}">${wholesaleMargin.toFixed(1)}%</span>` : '-'}
+        </td>
+        <td>
+          <div class="action-buttons">
+            <button class="btn-icon edit-btn" data-sku="${product.sku}" title="Edit pricing">
+              <span class="material-symbols-outlined">edit</span>
+            </button>
+          </div>
+        </td>
+      `;
+      pricingTbody.appendChild(row);
+    });
+
+    // Attach event listeners
+    document.querySelectorAll('.edit-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const sku = (e.currentTarget as HTMLElement).getAttribute('data-sku')!;
+        openUpdateModal(sku);
+      });
+    });
+
+    document.getElementById('product-count-badge')!.textContent = `${filteredProducts.length} products`;
+  };
+
+  const updateStats = () => {
+    document.getElementById('total-products')!.textContent = allProducts.length.toString();
+
+    const withStandard = allProducts.filter(p => pricingData.has(`${p.sku}_standard`)).length;
+    const withWholesale = allProducts.filter(p => pricingData.has(`${p.sku}_wholesale`)).length;
+
+    document.getElementById('standard-count')!.textContent = withStandard.toString();
+    document.getElementById('wholesale-count')!.textContent = withWholesale.toString();
+
+    // Calculate average margin
+    let totalMargin = 0;
+    let count = 0;
+    allProducts.forEach(product => {
+      const cost = supplierCosts.get(product.sku) || 0;
+      const standardPricing = pricingData.get(`${product.sku}_standard`);
+      if (standardPricing && cost > 0) {
+        totalMargin += calculateMargin(standardPricing.retailPrice, cost);
+        count++;
+      }
+    });
+
+    const avgMargin = count > 0 ? totalMargin / count : 0;
+    document.getElementById('avg-margin')!.textContent = `${avgMargin.toFixed(1)}%`;
+  };
+
+  const filterProducts = () => {
+    const searchText = searchInput.value.toLowerCase();
+    const category = categoryFilter.value;
+
+    filteredProducts = allProducts.filter(product => {
+      const matchesSearch = !searchText || 
+        product.sku.toLowerCase().includes(searchText) ||
+        product.description.toLowerCase().includes(searchText);
+
+      const matchesCategory = category === 'all' || product.category === category;
+
+      return matchesSearch && matchesCategory;
+    });
+
+    renderTable();
+  };
+
+  searchInput.addEventListener('input', filterProducts);
+  categoryFilter.addEventListener('change', filterProducts);
+
+  loadData();
+
+  // Modal handling
+  const openUpdateModal = (sku: string) => {
+    const product = allProducts.find(p => p.sku === sku);
+    if (!product) return;
+
+    const cost = supplierCosts.get(sku) || 0;
+    const standardPricing = pricingData.get(`${sku}_standard`);
+    const wholesalePricing = pricingData.get(`${sku}_wholesale`);
+
+    document.getElementById('modal-sku')!.setAttribute('value', sku);
+    document.getElementById('modal-product-name')!.textContent = product.description;
+    document.getElementById('modal-product-sku')!.textContent = sku;
+    document.getElementById('modal-supplier-cost')!.textContent = cost.toFixed(2);
+
+    const standardPriceInput = document.getElementById('standard-price') as HTMLInputElement;
+    const standardMarginInput = document.getElementById('standard-margin') as HTMLInputElement;
+    const wholesalePriceInput = document.getElementById('wholesale-price') as HTMLInputElement;
+    const wholesaleMarginInput = document.getElementById('wholesale-margin') as HTMLInputElement;
+
+    standardPriceInput.value = standardPricing?.retailPrice?.toString() || '';
+    wholesalePriceInput.value = wholesalePricing?.retailPrice?.toString() || '';
+
+    if (standardPricing) {
+      const margin = calculateMargin(standardPricing.retailPrice, cost);
+      standardMarginInput.value = margin.toFixed(1);
+      updateMarginDisplay('standard', margin);
+    }
+
+    if (wholesalePricing) {
+      const margin = calculateMargin(wholesalePricing.retailPrice, cost);
+      wholesaleMarginInput.value = margin.toFixed(1);
+      updateMarginDisplay('wholesale', margin);
+    }
+
+    updatePriceModal.classList.remove('hidden');
+  };
+
+  const closeModal = () => {
+    updatePriceModal.classList.add('hidden');
+    updatePriceForm.reset();
+  };
+
+  const updateMarginDisplay = (tier: string, margin: number) => {
+    const display = document.getElementById(`${tier}-margin-display`)!;
+    display.textContent = `${margin.toFixed(1)}%`;
+    display.className = `badge ${margin < 0 ? 'badge-danger' : tier === 'standard' ? 'badge-success' : 'badge-info'}`;
+  };
+
+  // Price/Margin sync
+  const standardPriceInput = document.getElementById('standard-price') as HTMLInputElement;
+  const standardMarginInput = document.getElementById('standard-margin') as HTMLInputElement;
+  const wholesalePriceInput = document.getElementById('wholesale-price') as HTMLInputElement;
+  const wholesaleMarginInput = document.getElementById('wholesale-margin') as HTMLInputElement;
+
+  standardPriceInput.addEventListener('input', () => {
+    const cost = parseFloat(document.getElementById('modal-supplier-cost')!.textContent || '0');
+    const price = parseFloat(standardPriceInput.value || '0');
+    if (price > 0 && cost > 0) {
+      const margin = calculateMargin(price, cost);
+      standardMarginInput.value = margin.toFixed(1);
+      updateMarginDisplay('standard', margin);
+    }
+  });
+
+  standardMarginInput.addEventListener('input', () => {
+    const cost = parseFloat(document.getElementById('modal-supplier-cost')!.textContent || '0');
+    const margin = parseFloat(standardMarginInput.value || '0');
+    if (cost > 0) {
+      const price = cost * (1 + margin / 100);
+      standardPriceInput.value = price.toFixed(2);
+      updateMarginDisplay('standard', margin);
+    }
+  });
+
+  wholesalePriceInput.addEventListener('input', () => {
+    const cost = parseFloat(document.getElementById('modal-supplier-cost')!.textContent || '0');
+    const price = parseFloat(wholesalePriceInput.value || '0');
+    if (price > 0 && cost > 0) {
+      const margin = calculateMargin(price, cost);
+      wholesaleMarginInput.value = margin.toFixed(1);
+      updateMarginDisplay('wholesale', margin);
+    }
+  });
+
+  wholesaleMarginInput.addEventListener('input', () => {
+    const cost = parseFloat(document.getElementById('modal-supplier-cost')!.textContent || '0');
+    const margin = parseFloat(wholesaleMarginInput.value || '0');
+    if (cost > 0) {
+      const price = cost * (1 + margin / 100);
+      wholesalePriceInput.value = price.toFixed(2);
+      updateMarginDisplay('wholesale', margin);
+    }
+  });
+
+  closeModalBtn.addEventListener('click', closeModal);
+  cancelBtn.addEventListener('click', closeModal);
+
+  updatePriceForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const sku = (document.getElementById('modal-sku') as HTMLInputElement).value;
+    const standardPrice = parseFloat(standardPriceInput.value || '0');
+    const wholesalePrice = parseFloat(wholesalePriceInput.value || '0');
+
+    const saveBtn = document.getElementById('save-btn') as HTMLButtonElement;
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<span class="material-symbols-outlined">refresh</span> Saving...';
+
+    try {
+      const updates: any[] = [];
+
+      if (standardPrice > 0) {
+        updates.push({
+          sku,
+          priceTier: 'standard',
+          retailPrice: standardPrice,
+          effectiveDate: new Date(),
+          updatedBy: 'admin'
+        });
+      }
+
+      if (wholesalePrice > 0) {
+        updates.push({
+          sku,
+          priceTier: 'wholesale',
+          retailPrice: wholesalePrice,
+          effectiveDate: new Date(),
+          updatedBy: 'admin'
+        });
+      }
+
+      for (const update of updates) {
+        await pricingService.setRetailPrice(update);
+        const key = `${update.sku}_${update.priceTier}`;
+        pricingData.set(key, {
+          ...update,
+          effectiveDate: Timestamp.fromDate(update.effectiveDate)
+        });
+      }
+
+      closeModal();
+      renderTable();
+      updateStats();
+      alert('Prices updated successfully!');
+    } catch (error) {
+      console.error('Error updating prices:', error);
+      alert(`Error: ${error instanceof Error ? error.message : 'Failed to update prices'}`);
+    } finally {
+      saveBtn.disabled = false;
+      saveBtn.innerHTML = '<span class="material-symbols-outlined">save</span> Save Prices';
+    }
+  });
+</script>
+
+<style>
+  .pricing-page {
+    padding: 1.5rem;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+
+  .page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 2rem;
+    gap: 2rem;
+  }
+
+  .page-header h1 {
+    font-size: 2rem;
+    font-weight: 600;
+    margin: 0 0 0.5rem 0;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+  }
+
+  .subtitle {
+    color: var(--text-secondary);
+    margin: 0;
+  }
+
+  .page-actions {
+    display: flex;
+    gap: 0.75rem;
+  }
+
+  .loading-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 2rem;
+  }
+
+  .spinner {
+    width: 48px;
+    height: 48px;
+    border: 4px solid var(--border-color);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .hidden {
+    display: none !important;
+  }
+
+  .alert {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 1rem;
+    border-radius: 8px;
+    margin-bottom: 1.5rem;
+    border: 1px solid;
+  }
+
+  .alert-error {
+    background: #fef2f2;
+    color: #991b1b;
+    border-color: #fca5a5;
+  }
+
+  .alert .material-symbols-outlined {
+    font-size: 24px;
+  }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+  }
+
+  .stat-card {
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .stat-icon {
+    font-size: 40px;
+  }
+
+  .stat-label {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.25rem;
+  }
+
+  .stat-value {
+    font-size: 2rem;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .card {
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .filters-card {
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem;
+    background: var(--surface-secondary);
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .card-header h2 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+  }
+
+  .search-bar {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+  }
+
+  .search-input-wrapper {
+    position: relative;
+    flex: 1;
+  }
+
+  .search-icon {
+    position: absolute;
+    left: 1rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-secondary);
+    pointer-events: none;
+  }
+
+  .search-input {
+    width: 100%;
+    padding: 0.75rem 1rem 0.75rem 3rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 0.875rem;
+  }
+
+  .search-input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  }
+
+  .form-select {
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 0.875rem;
+    min-width: 180px;
+  }
+
+  .form-select:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  }
+
+  .table-container {
+    overflow-x: auto;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  thead th {
+    background: var(--surface-secondary);
+    padding: 1rem;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  tbody td {
+    padding: 1rem;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  tbody tr:hover {
+    background: var(--surface-secondary);
+  }
+
+  .product-cell {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .product-icon {
+    color: var(--primary);
+    font-size: 24px;
+  }
+
+  .product-name {
+    font-weight: 600;
+  }
+
+  .product-sku {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+  }
+
+  .price-cell {
+    font-weight: 600;
+    color: var(--secondary, #4338ca);
+  }
+
+  .action-buttons {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .font-semibold {
+    font-weight: 600;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+
+  .badge-success {
+    background: #d1fae5;
+    color: #059669;
+  }
+
+  .badge-info {
+    background: #dbeafe;
+    color: #1e40af;
+  }
+
+  .badge-danger {
+    background: #fee2e2;
+    color: #dc2626;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.5rem;
+    border-radius: 6px;
+    font-weight: 500;
+    border: none;
+    cursor: pointer;
+    text-decoration: none;
+    transition: all 0.2s;
+  }
+
+  .btn-primary {
+    background: var(--primary);
+    color: white;
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    background: var(--primary-dark);
+  }
+
+  .btn-secondary {
+    background: white;
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+  }
+
+  .btn-secondary:hover {
+    background: var(--surface-secondary);
+  }
+
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .btn-icon, .btn-ghost {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 0.5rem;
+    border-radius: 4px;
+    transition: all 0.2s;
+  }
+
+  .btn-icon:hover, .btn-ghost:hover {
+    background: var(--surface-secondary);
+    color: var(--primary);
+  }
+
+  /* Modal */
+  .modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  }
+
+  .modal-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+  }
+
+  .modal-content {
+    position: relative;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+    max-width: 600px;
+    width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+    z-index: 1001;
+  }
+
+  .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .modal-header h2 {
+    margin: 0;
+    font-size: 1.25rem;
+  }
+
+  .modal-body {
+    padding: 1.5rem;
+  }
+
+  .product-info {
+    margin-bottom: 1.5rem;
+  }
+
+  .product-info h3 {
+    margin: 0 0 0.25rem 0;
+  }
+
+  .text-muted {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+  }
+
+  .price-section {
+    margin-bottom: 1.5rem;
+    padding: 1rem;
+    background: var(--surface-secondary);
+    border-radius: 6px;
+  }
+
+  .price-section h4 {
+    margin: 0 0 0.5rem 0;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+  }
+
+  .cost-display {
+    font-size: 1.5rem;
+    font-weight: 600;
+  }
+
+  .price-tier-section {
+    margin-bottom: 1.5rem;
+    padding: 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+  }
+
+  .price-tier-section h4 {
+    margin: 0 0 1rem 0;
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .price-inputs {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto;
+    gap: 1rem;
+    align-items: end;
+  }
+
+  .form-group {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .form-group label {
+    font-size: 0.875rem;
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+    color: var(--text-primary);
+  }
+
+  .form-input {
+    padding: 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 0.875rem;
+  }
+
+  .form-input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  }
+
+  .margin-display {
+    display: flex;
+    align-items: center;
+  }
+
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+    margin-top: 1.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border-color);
+  }
+
+  @media (max-width: 768px) {
+    .pricing-page {
+      padding: 1rem;
+    }
+
+    .page-header {
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .page-actions {
+      width: 100%;
+      flex-direction: column;
+    }
+
+    .page-actions .btn {
+      width: 100%;
+      justify-content: center;
+    }
+
+    .stats-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .search-bar {
+      flex-direction: column;
+    }
+
+    .form-select {
+      width: 100%;
+    }
+
+    .price-inputs {
+      grid-template-columns: 1fr;
+    }
+
+    table {
+      font-size: 0.875rem;
+    }
+
+    thead th,
+    tbody td {
+      padding: 0.75rem 0.5rem;
+    }
+  }
+</style>

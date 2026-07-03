@@ -1,0 +1,227 @@
+---
+/**
+ * SearchBar Component
+ * 
+ * Provides search functionality with autocomplete and filter support.
+ * Used for searching products, suppliers, transactions, etc.
+ * Validates Requirements 2.4, 7.5 (search within 2 seconds)
+ * 
+ * Props:
+ * - placeholder: Search input placeholder text (default: 'Search...')
+ * - name: Form input name attribute (default: 'search')
+ * - value: Initial search value
+ * - filters: Array of filter options { key: string, label: string, options: Array<{value: string, label: string}> }
+ * - showClearButton: Show clear button when search has value (default: true)
+ * - size: 'sm' | 'md' | 'lg' - input size (default: 'md')
+ */
+
+interface FilterOption {
+  value: string;
+  label: string;
+}
+
+interface Filter {
+  key: string;
+  label: string;
+  options: FilterOption[];
+}
+
+interface Props {
+  placeholder?: string;
+  name?: string;
+  value?: string;
+  filters?: Filter[];
+  showClearButton?: boolean;
+  size?: 'sm' | 'md' | 'lg';
+}
+
+const { 
+  placeholder = 'Search...', 
+  name = 'search',
+  value = '',
+  filters = [],
+  showClearButton = true,
+  size = 'md'
+} = Astro.props;
+
+const sizeClasses = {
+  sm: 'py-1.5 px-3 text-sm',
+  md: 'py-2 px-4 text-base',
+  lg: 'py-3 px-5 text-lg'
+};
+
+const inputClass = sizeClasses[size];
+---
+
+<div class="search-bar-container">
+  <form class="search-form" action="#" method="get">
+    <div class="search-input-wrapper flex items-center gap-2">
+      <!-- Search Icon -->
+      <div class="search-icon text-gray-400 absolute left-3 pointer-events-none">
+        🔍
+      </div>
+
+      <!-- Search Input -->
+      <input
+        type="search"
+        name={name}
+        value={value}
+        placeholder={placeholder}
+        class={`search-input w-full pl-10 pr-10 ${inputClass} border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+        aria-label="Search"
+        autocomplete="off"
+      />
+
+      <!-- Clear Button -->
+      {showClearButton && (
+        <button
+          type="button"
+          class="clear-btn absolute right-3 text-gray-400 hover:text-gray-600 focus:outline-none hidden"
+          aria-label="Clear search"
+          title="Clear search"
+        >
+          ✕
+        </button>
+      )}
+    </div>
+
+    <!-- Filters -->
+    {filters.length > 0 && (
+      <div class="search-filters flex flex-wrap gap-3 mt-3">
+        {filters.map(filter => (
+          <div class="filter-group">
+            <label class="filter-label text-sm font-medium text-gray-700 mb-1 block">
+              {filter.label}
+            </label>
+            <select
+              name={filter.key}
+              class="filter-select py-1.5 px-3 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            >
+              <option value="">All</option>
+              {filter.options.map(option => (
+                <option value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </div>
+        ))}
+        
+        <!-- Search Button -->
+        <div class="filter-group self-end">
+          <button
+            type="submit"
+            class="search-submit-btn py-1.5 px-4 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
+          >
+            Search
+          </button>
+        </div>
+      </div>
+    )}
+  </form>
+</div>
+
+<style>
+  .search-bar-container {
+    width: 100%;
+  }
+
+  .search-input-wrapper {
+    position: relative;
+  }
+
+  .search-input {
+    transition: all 0.2s ease;
+  }
+
+  .search-input:hover {
+    border-color: #9ca3af;
+  }
+
+  .search-input:focus {
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  }
+
+  .clear-btn {
+    transition: opacity 0.2s;
+    font-size: 1.25rem;
+    line-height: 1;
+  }
+
+  .filter-select {
+    min-width: 150px;
+    transition: all 0.2s ease;
+  }
+
+  .filter-select:hover {
+    border-color: #9ca3af;
+  }
+
+  @media (max-width: 768px) {
+    .search-filters {
+      flex-direction: column;
+    }
+
+    .filter-select {
+      width: 100%;
+    }
+
+    .search-submit-btn {
+      width: 100%;
+    }
+  }
+</style>
+
+<script>
+  // Client-side interactivity
+  document.addEventListener('DOMContentLoaded', () => {
+    const searchForms = document.querySelectorAll('.search-form');
+    
+    searchForms.forEach(form => {
+      const searchInput = form.querySelector('.search-input') as HTMLInputElement;
+      const clearBtn = form.querySelector('.clear-btn') as HTMLButtonElement;
+      
+      if (!searchInput) return;
+
+      // Show/hide clear button based on input value
+      const toggleClearButton = () => {
+        if (clearBtn) {
+          if (searchInput.value.trim().length > 0) {
+            clearBtn.classList.remove('hidden');
+          } else {
+            clearBtn.classList.add('hidden');
+          }
+        }
+      };
+
+      // Initial state
+      toggleClearButton();
+
+      // Listen for input changes
+      searchInput.addEventListener('input', toggleClearButton);
+
+      // Clear button functionality
+      if (clearBtn) {
+        clearBtn.addEventListener('click', () => {
+          searchInput.value = '';
+          searchInput.focus();
+          toggleClearButton();
+          
+          // Optionally trigger search with empty value
+          form.dispatchEvent(new Event('submit', { cancelable: true }));
+        });
+      }
+
+      // Add search debouncing for real-time search
+      let searchTimeout: number;
+      searchInput.addEventListener('input', (e) => {
+        clearTimeout(searchTimeout);
+        
+        searchTimeout = window.setTimeout(() => {
+          // Dispatch custom event for real-time search
+          form.dispatchEvent(new CustomEvent('search', {
+            detail: { query: searchInput.value }
+          }));
+        }, 300); // 300ms debounce
+      });
+    });
+  });
+</script>

@@ -1,0 +1,492 @@
+---
+/**
+ * Add New Supplier Page - Firestore Connected
+ * 
+ * Form to create a new supplier and save to Firestore.
+ */
+
+import ModernLayout from '../../layouts/ModernLayout.astro';
+
+const pageTitle = 'Add New Supplier';
+---
+
+<ModernLayout title={pageTitle} requireAuth={true}>
+  <div class="supplier-form-page">
+    <!-- Header -->
+    <div class="page-header">
+      <div>
+        <a href="/suppliers" class="back-link">← Back to Suppliers</a>
+        <h1>🏢 Add New Supplier</h1>
+        <p class="subtitle">Enter supplier information</p>
+      </div>
+    </div>
+
+    <!-- Firestore Status Notice -->
+    <div class="demo-notice">
+      <strong>🔥 Connected to Firestore:</strong> When you submit this form, the supplier will be saved to your Firestore database immediately.
+      You can verify it in Firebase Console → Firestore → suppliers collection.
+    </div>
+
+    <!-- Success/Error Message -->
+    <div id="message-container" class="hidden"></div>
+
+    <!-- Supplier Form -->
+    <div class="card">
+      <form id="supplier-form" class="supplier-form">
+        <!-- Basic Information -->
+        <div class="form-section">
+          <h3>📋 Basic Information</h3>
+          
+          <div class="form-group">
+            <label for="name">
+              Supplier Name <span class="required">*</span>
+            </label>
+            <input
+              type="text"
+              id="name"
+              name="name"
+              required
+              placeholder="e.g., ABC Hardware Supply Co."
+            />
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="code">
+                Supplier Code
+              </label>
+              <input
+                type="text"
+                id="code"
+                name="code"
+                placeholder="e.g., ABC-001"
+              />
+              <small>Optional unique identifier</small>
+            </div>
+
+            <div class="form-group">
+              <label for="category">
+                Category
+              </label>
+              <select id="category" name="category">
+                <option value="">Select category...</option>
+                <option value="hardware">Hardware</option>
+                <option value="tools">Tools</option>
+                <option value="electrical">Electrical</option>
+                <option value="plumbing">Plumbing</option>
+                <option value="paint">Paint & Coatings</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Contact Information -->
+        <div class="form-section">
+          <h3>📞 Contact Information</h3>
+          
+          <div class="form-group">
+            <label for="contactPerson">
+              Contact Person
+            </label>
+            <input
+              type="text"
+              id="contactPerson"
+              name="contactPerson"
+              placeholder="e.g., Juan Dela Cruz"
+            />
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="email">
+                Email Address
+              </label>
+              <input
+                type="email"
+                id="email"
+                name="email"
+                placeholder="e.g., sales@supplier.com"
+              />
+            </div>
+
+            <div class="form-group">
+              <label for="phone">
+                Phone Number
+              </label>
+              <input
+                type="tel"
+                id="phone"
+                name="phone"
+                placeholder="e.g., +63 917 123 4567"
+              />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="address">
+              Address
+            </label>
+            <textarea
+              id="address"
+              name="address"
+              rows="3"
+              placeholder="Enter complete address"
+            ></textarea>
+          </div>
+        </div>
+
+        <!-- Payment Terms -->
+        <div class="form-section">
+          <h3>💰 Payment & Terms</h3>
+          
+          <div class="form-row">
+            <div class="form-group">
+              <label for="paymentTerms">
+                Payment Terms
+              </label>
+              <select id="paymentTerms" name="paymentTerms">
+                <option value="">Select terms...</option>
+                <option value="cod">Cash on Delivery (COD)</option>
+                <option value="net7">Net 7 days</option>
+                <option value="net15">Net 15 days</option>
+                <option value="net30">Net 30 days</option>
+                <option value="net60">Net 60 days</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="creditLimit">
+                Credit Limit (₱)
+              </label>
+              <input
+                type="number"
+                id="creditLimit"
+                name="creditLimit"
+                placeholder="e.g., 500000"
+                min="0"
+                step="1000"
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- Additional Information -->
+        <div class="form-section">
+          <h3>📝 Additional Information</h3>
+          
+          <div class="form-group">
+            <label for="notes">
+              Notes
+            </label>
+            <textarea
+              id="notes"
+              name="notes"
+              rows="4"
+              placeholder="Any additional notes or special instructions..."
+            ></textarea>
+          </div>
+
+          <div class="form-group">
+            <label class="checkbox-label">
+              <input type="checkbox" name="isActive" checked />
+              <span>Active supplier (can receive orders)</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Form Actions -->
+        <div class="form-actions">
+          <a href="/suppliers" class="btn-secondary">Cancel</a>
+          <button type="submit" class="btn-primary" id="submit-btn">
+            ✅ Create Supplier
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</ModernLayout>
+
+<script>
+  import { supplierService } from '../../services/suppliers/SupplierService';
+
+  const form = document.getElementById('supplier-form') as HTMLFormElement;
+  const submitBtn = document.getElementById('submit-btn') as HTMLButtonElement;
+  const messageContainer = document.getElementById('message-container') as HTMLDivElement;
+
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    // Disable submit button
+    submitBtn.disabled = true;
+    submitBtn.textContent = '⏳ Creating...';
+
+    // Get form data
+    const formData = new FormData(form);
+    const supplierData = {
+      name: formData.get('name')?.toString() || '',
+      contactPerson: formData.get('contactPerson')?.toString() || '',
+      email: formData.get('email')?.toString() || '',
+      phone: formData.get('phone')?.toString() || '',
+      address: formData.get('address')?.toString() || '',
+      isActive: formData.get('isActive') === 'on',
+    };
+
+    try {
+      // Validate
+      if (!supplierData.name) {
+        throw new Error('Supplier name is required');
+      }
+
+      // Create supplier
+      const newSupplier = await supplierService.createSupplier(supplierData, 'demo-user');
+
+      // Show success message
+      messageContainer.className = 'alert-success';
+      messageContainer.innerHTML = `
+        ✅ Supplier "${supplierData.name}" created successfully!
+        <div style="margin-top: 1rem; display: flex; gap: 1rem;">
+          <a href="/suppliers" class="btn-secondary">← Back to Suppliers</a>
+          <a href="/suppliers/${newSupplier.supplierId}" class="btn-primary">View Supplier</a>
+        </div>
+      `;
+      messageContainer.classList.remove('hidden');
+
+      // Reset form
+      form.reset();
+
+    } catch (error) {
+      // Show error message
+      const errorMessage = error instanceof Error ? error.message : 'Failed to create supplier';
+      
+      messageContainer.className = 'alert-error';
+      messageContainer.innerHTML = `
+        ❌ ${errorMessage}
+        ${errorMessage.includes('Firebase') ? '<div style="margin-top: 1rem;"><a href="/FIRESTORE_CONNECTION_GUIDE.md" class="btn-secondary">View Setup Guide</a></div>' : ''}
+      `;
+      messageContainer.classList.remove('hidden');
+
+      // Re-enable submit button
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = '✅ Create Supplier';
+    }
+  });
+</script>
+
+<style>
+  .supplier-form-page {
+    padding: 2rem;
+    max-width: 1000px;
+    margin: 0 auto;
+  }
+
+  .page-header {
+    margin-bottom: 2rem;
+  }
+
+  .back-link {
+    display: inline-block;
+    color: #2563eb;
+    text-decoration: none;
+    margin-bottom: 0.5rem;
+    font-size: 0.875rem;
+  }
+
+  .back-link:hover {
+    text-decoration: underline;
+  }
+
+  .page-header h1 {
+    font-size: 2rem;
+    color: #111827;
+    margin-bottom: 0.5rem;
+  }
+
+  .subtitle {
+    color: #6b7280;
+    font-size: 1rem;
+  }
+
+  .demo-notice {
+    background: linear-gradient(135deg, #dbeafe 0%, #e0e7ff 100%);
+    border: 2px solid #3b82f6;
+    border-radius: 0.75rem;
+    padding: 1rem 1.5rem;
+    margin-bottom: 2rem;
+    color: #1e40af;
+    font-size: 0.875rem;
+  }
+
+  .alert-success {
+    background: #d1fae5;
+    border: 2px solid #10b981;
+    border-radius: 0.75rem;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+    color: #065f46;
+  }
+
+  .alert-error {
+    background: #fee2e2;
+    border: 2px solid #ef4444;
+    border-radius: 0.75rem;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+    color: #991b1b;
+  }
+
+  .card {
+    background: white;
+    border-radius: 0.75rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    padding: 2rem;
+  }
+
+  .supplier-form {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+  }
+
+  .form-section {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .form-section h3 {
+    font-size: 1.125rem;
+    color: #111827;
+    margin-bottom: 0.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid #e5e7eb;
+  }
+
+  .form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+  }
+
+  .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  label {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #374151;
+  }
+
+  .required {
+    color: #ef4444;
+  }
+
+  input[type="text"],
+  input[type="email"],
+  input[type="tel"],
+  input[type="number"],
+  select,
+  textarea {
+    padding: 0.75rem;
+    border: 1px solid #d1d5db;
+    border-radius: 0.5rem;
+    font-size: 0.875rem;
+    transition: all 0.2s;
+  }
+
+  input:focus,
+  select:focus,
+  textarea:focus {
+    outline: none;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  }
+
+  small {
+    font-size: 0.75rem;
+    color: #6b7280;
+  }
+
+  .checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: normal;
+    cursor: pointer;
+  }
+
+  .checkbox-label input[type="checkbox"] {
+    width: auto;
+    cursor: pointer;
+  }
+
+  .hidden {
+    display: none;
+  }
+
+  .form-actions {
+    display: flex;
+    gap: 1rem;
+    justify-content: flex-end;
+    padding-top: 1rem;
+    border-top: 1px solid #e5e7eb;
+  }
+
+  .btn-primary {
+    padding: 0.75rem 2rem;
+    background-color: #2563eb;
+    color: white;
+    border: none;
+    border-radius: 0.5rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .btn-primary:hover {
+    background-color: #1d4ed8;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+  }
+
+  .btn-secondary {
+    padding: 0.75rem 2rem;
+    background-color: white;
+    color: #374151;
+    border: 1px solid #d1d5db;
+    border-radius: 0.5rem;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: inline-block;
+    text-align: center;
+  }
+
+  .btn-secondary:hover {
+    background-color: #f9fafb;
+    border-color: #9ca3af;
+  }
+
+  @media (max-width: 768px) {
+    .supplier-form-page {
+      padding: 1rem;
+    }
+
+    .form-row {
+      grid-template-columns: 1fr;
+    }
+
+    .form-actions {
+      flex-direction: column-reverse;
+    }
+
+    .btn-primary,
+    .btn-secondary {
+      width: 100%;
+    }
+  }
+</style>

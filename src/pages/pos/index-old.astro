@@ -1,0 +1,272 @@
+---
+/**
+ * Point of Sale (POS) Page - Modern Version
+ * 
+ * Fast product lookup and transaction processing interface.
+ * Supports multiple payment methods.
+ */
+
+import ModernLayout from '../../layouts/ModernLayout.astro';
+
+// Mock data for demo
+const recentTransactions = [
+  {
+    transactionId: 'TXN-2026-001',
+    date: new Date('2026-07-02'),
+    items: 3,
+    total: 1245.50,
+    paymentMethod: 'Cash',
+  },
+  {
+    transactionId: 'TXN-2026-002',
+    date: new Date('2026-07-02'),
+    items: 5,
+    total: 2890.75,
+    paymentMethod: 'Card',
+  },
+  {
+    transactionId: 'TXN-2026-003',
+    date: new Date('2026-07-01'),
+    items: 2,
+    total: 567.00,
+    paymentMethod: 'Mobile',
+  },
+];
+
+const formatDate = (date: Date) => {
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+};
+
+const todaySales = recentTransactions.reduce((sum, t) => sum + t.total, 0);
+const todayTransactions = recentTransactions.length;
+const avgTransaction = todaySales / todayTransactions;
+---
+
+<ModernLayout title="Point of Sale">
+  <!-- Page Header -->
+  <div class="page-header">
+    <div class="page-header-content">
+      <h1>Point of Sale</h1>
+      <p>Fast product lookup and transaction processing</p>
+    </div>
+    <div class="page-header-actions">
+      <button class="btn btn-secondary">
+        <span class="material-symbols-outlined">receipt_long</span>
+        View Transactions
+      </button>
+      <button class="btn btn-primary">
+        <span class="material-symbols-outlined">add</span>
+        New Transaction
+      </button>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-icon-wrapper" style="background: #d1fae5; color: #059669;">
+        <span class="material-symbols-outlined">payments</span>
+      </div>
+      <div class="stat-content">
+        <h3>Today's Sales</h3>
+        <div class="stat-value">₱{todaySales.toLocaleString()}</div>
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-icon-wrapper" style="background: #dbeafe; color: #1e40af;">
+        <span class="material-symbols-outlined">receipt</span>
+      </div>
+      <div class="stat-content">
+        <h3>Transactions</h3>
+        <div class="stat-value">{todayTransactions}</div>
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-icon-wrapper" style="background: #e9d5ff; color: #7c3aed;">
+        <span class="material-symbols-outlined">trending_up</span>
+      </div>
+      <div class="stat-content">
+        <h3>Avg Transaction</h3>
+        <div class="stat-value">₱{avgTransaction.toFixed(2)}</div>
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-icon-wrapper" style="background: #d1fae5; color: #059669;">
+        <span class="material-symbols-outlined">check_circle</span>
+      </div>
+      <div class="stat-content">
+        <h3>Status</h3>
+        <div class="stat-value" style="font-size: 1.25rem;">Online</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- POS Interface -->
+  <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem; margin-bottom: 2rem;">
+    <!-- Left: Product Lookup -->
+    <div class="card">
+      <div class="card-header">
+        <h2>Product Lookup</h2>
+      </div>
+      <div class="card-body">
+        <div class="search-bar" style="margin-bottom: 0;">
+          <div class="search-input-wrapper">
+            <span class="material-symbols-outlined search-icon">search</span>
+            <input 
+              type="text" 
+              class="search-input" 
+              placeholder="Scan or enter SKU..."
+              autofocus
+            />
+          </div>
+          <button class="btn btn-primary">
+            <span class="material-symbols-outlined">search</span>
+            Lookup
+          </button>
+        </div>
+
+        <!-- Product Display Area -->
+        <div style="margin-top: 1.5rem; padding: 1.5rem; background: var(--bg-secondary); border-radius: 0.5rem; text-align: center; min-height: 200px; display: flex; align-items: center; justify-content: center;">
+          <div style="color: var(--text-secondary);">
+            <span class="material-symbols-outlined" style="font-size: 4rem; opacity: 0.3;">barcode_scanner</span>
+            <p style="margin-top: 1rem;">Scan or search for a product to begin</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Cart & Payment -->
+    <div>
+      <!-- Cart -->
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="card-header">
+          <h2>Cart</h2>
+          <button class="btn btn-ghost" style="padding: 0.5rem; font-size: 0.875rem;">
+            Clear
+          </button>
+        </div>
+        <div class="card-body">
+          <div style="text-align: center; padding: 2rem; color: var(--text-secondary);">
+            <span class="material-symbols-outlined" style="font-size: 3rem; opacity: 0.3;">shopping_cart</span>
+            <p style="margin-top: 0.5rem;">No items in cart</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Summary -->
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="card-body">
+          <div style="display: flex; justify-content: space-between; padding: 0.75rem 0; border-bottom: 1px solid var(--border-color);">
+            <span style="color: var(--text-secondary);">Subtotal:</span>
+            <span style="font-weight: 600;">₱0.00</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; padding: 0.75rem 0; border-bottom: 1px solid var(--border-color);">
+            <span style="color: var(--text-secondary);">Tax (0%):</span>
+            <span style="font-weight: 600;">₱0.00</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; padding: 1rem 0 0 0; font-size: 1.25rem; font-weight: 700;">
+            <span>Total:</span>
+            <span style="color: var(--secondary);">₱0.00</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Payment Methods -->
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="card-header">
+          <h2>Payment</h2>
+        </div>
+        <div class="card-body">
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; margin-bottom: 1rem;">
+            <button class="btn btn-secondary" style="flex-direction: column; padding: 1rem; height: auto;">
+              <span style="font-size: 2rem; margin-bottom: 0.5rem;">💵</span>
+              <span style="font-size: 0.875rem;">Cash</span>
+            </button>
+            <button class="btn btn-secondary" style="flex-direction: column; padding: 1rem; height: auto;">
+              <span style="font-size: 2rem; margin-bottom: 0.5rem;">💳</span>
+              <span style="font-size: 0.875rem;">Card</span>
+            </button>
+            <button class="btn btn-secondary" style="flex-direction: column; padding: 1rem; height: auto;">
+              <span style="font-size: 2rem; margin-bottom: 0.5rem;">📱</span>
+              <span style="font-size: 0.875rem;">Mobile</span>
+            </button>
+          </div>
+          <button class="btn btn-primary" style="width: 100%; font-size: 1rem; padding: 1rem;" disabled>
+            Complete Transaction
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recent Transactions -->
+  <div class="card">
+    <div class="card-header">
+      <h2>Recent Transactions</h2>
+      <span class="badge badge-info">{recentTransactions.length} transactions</span>
+    </div>
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>Transaction ID</th>
+            <th>Date & Time</th>
+            <th>Items</th>
+            <th>Total</th>
+            <th>Payment Method</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {recentTransactions.map(transaction => (
+            <tr>
+              <td>
+                <div class="flex items-center gap-2">
+                  <span class="material-symbols-outlined" style="color: var(--primary);">receipt</span>
+                  <div>
+                    <div class="font-semibold">{transaction.transactionId}</div>
+                  </div>
+                </div>
+              </td>
+              <td class="text-sm text-muted">{formatDate(transaction.date)}</td>
+              <td class="text-sm">{transaction.items}</td>
+              <td>
+                <span class="font-semibold" style="color: var(--secondary);">₱{transaction.total.toFixed(2)}</span>
+              </td>
+              <td>
+                <span class="badge badge-info">{transaction.paymentMethod}</span>
+              </td>
+              <td>
+                <div class="flex gap-2">
+                  <button class="btn-ghost" style="padding: 0.5rem;" title="View details">
+                    <span class="material-symbols-outlined" style="font-size: 20px;">visibility</span>
+                  </button>
+                  <button class="btn-ghost" style="padding: 0.5rem;" title="Print receipt">
+                    <span class="material-symbols-outlined" style="font-size: 20px;">print</span>
+                  </button>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Demo Notice -->
+  <div class="alert alert-info mt-6">
+    <span class="material-symbols-outlined">info</span>
+    <div>
+      <strong>CAPSTONE Demo Mode:</strong> Showing mock POS data. 
+      With Firebase connected, this would be a fully functional point-of-sale system with real-time inventory updates and offline support.
+    </div>
+  </div>
+</ModernLayout>

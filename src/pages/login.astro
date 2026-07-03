@@ -1,0 +1,383 @@
+---
+/**
+ * Login Page
+ * 
+ * Provides user authentication interface with email and password fields.
+ * Implements login form submission, error handling, and redirect logic.
+ * 
+ * Requirements: 1.1, 1.2, 20.3
+ */
+
+import { FirebaseAuthService } from '../services/auth/AuthService';
+import { auth, db } from '../services/firebase';
+
+let errorMessage = '';
+let email = '';
+let successRedirect = false;
+
+// Initialize auth service
+const authService = new FirebaseAuthService(auth, db);
+
+// CAPSTONE DEMO MODE: Skip authentication checks
+// Users can access login page without being redirected
+
+// Handle form submission
+if (Astro.request.method === 'POST') {
+  try {
+    const formData = await Astro.request.formData();
+    email = formData.get('email')?.toString() || '';
+    const password = formData.get('password')?.toString() || '';
+
+    // Validate input
+    if (!email || !password) {
+      errorMessage = 'Email and password are required';
+    } else {
+      // CAPSTONE DEMO MODE: Check for demo credentials
+      const isDemoMode = email === 'demo@tpro.com' && password === 'demo123';
+      
+      if (isDemoMode) {
+        // Create demo session without Firebase - use correct cookie name
+        Astro.cookies.set('pro_synapse_session', JSON.stringify({
+          userId: 'demo-user-001',
+          email: 'demo@tpro.com',
+          role: 'Administrator',
+          token: 'demo-token-' + Date.now(),
+          expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        }), {
+          path: '/',
+          maxAge: 60 * 60, // 1 hour
+          sameSite: 'strict',
+        });
+        
+        return Astro.redirect('/');
+      }
+      
+      // Try Firebase authentication for non-demo logins
+      try {
+        // Requirement 1.1: Authenticate user with valid credentials
+        // Requirement 1.2: Reject login with invalid credentials
+        const session = await authService.login(email, password);
+        
+        // Store session in cookie (secure, httpOnly would be set in production)
+        // For now, we'll use a simple cookie approach
+        // Note: Task 22.2 will enhance this with proper session management
+        Astro.cookies.set('session', JSON.stringify({
+          userId: session.userId,
+          email: session.email,
+          role: session.role,
+          token: session.token,
+          expiresAt: session.expiresAt.toISOString(),
+        }), {
+          path: '/',
+          maxAge: 60 * 60, // 1 hour
+          sameSite: 'lax',
+          secure: import.meta.env.PROD, // Secure in production
+        });
+
+        // Redirect to dashboard on successful login
+        return Astro.redirect('/');
+      } catch (firebaseError: any) {
+        // If Firebase fails but not in demo mode, show error
+        throw firebaseError;
+      }
+    }
+  } catch (error: any) {
+    // Requirement 20.3: Display clear error messages
+    errorMessage = error.message || 'Login failed. Please try again.';
+  }
+}
+
+const pageTitle = 'Login';
+---
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{pageTitle} | PRO SYNAPSE</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    
+    <style>
+      /* Base Styles */
+      *, *::before, *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      :root {
+        --color-primary: #2563eb;
+        --color-primary-dark: #1d4ed8;
+        --color-danger: #ef4444;
+        --color-background: #f9fafb;
+        --color-surface: #ffffff;
+        --color-border: #e5e7eb;
+        --color-text: #111827;
+        --color-text-secondary: #6b7280;
+        --spacing-xs: 0.25rem;
+        --spacing-sm: 0.5rem;
+        --spacing-md: 1rem;
+        --spacing-lg: 1.5rem;
+        --spacing-xl: 2rem;
+        --radius-md: 0.5rem;
+        --radius-lg: 0.75rem;
+        --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      }
+
+      html {
+        font-family: var(--font-sans);
+        font-size: 16px;
+        line-height: 1.5;
+      }
+
+      body {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background-color: var(--color-background);
+        color: var(--color-text);
+        padding: var(--spacing-lg);
+      }
+
+      /* Login Container */
+      .login-container {
+        width: 100%;
+        max-width: 400px;
+        background-color: var(--color-surface);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-lg);
+        padding: var(--spacing-xl);
+      }
+
+      /* Branding */
+      .login-brand {
+        text-align: center;
+        margin-bottom: var(--spacing-xl);
+      }
+
+      .brand-icon {
+        font-size: 3rem;
+        display: block;
+        margin-bottom: var(--spacing-sm);
+      }
+
+      .brand-title {
+        font-size: 1.5rem;
+        font-weight: 600;
+        color: var(--color-primary);
+        margin-bottom: var(--spacing-xs);
+      }
+
+      .brand-subtitle {
+        font-size: 0.875rem;
+        color: var(--color-text-secondary);
+      }
+
+      /* Form Styles */
+      .login-form {
+        display: flex;
+        flex-direction: column;
+        gap: var(--spacing-lg);
+      }
+
+      .form-group {
+        display: flex;
+        flex-direction: column;
+        gap: var(--spacing-xs);
+      }
+
+      label {
+        font-size: 0.875rem;
+        font-weight: 500;
+        color: var(--color-text);
+      }
+
+      input {
+        width: 100%;
+        padding: var(--spacing-sm) var(--spacing-md);
+        font-size: 0.875rem;
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        transition: all 0.2s;
+      }
+
+      input:focus {
+        outline: none;
+        border-color: var(--color-primary);
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+      }
+
+      input:disabled {
+        background-color: var(--color-background);
+        cursor: not-allowed;
+      }
+
+      /* Error Message - Requirement 20.3 */
+      .error-message {
+        padding: var(--spacing-md);
+        background-color: #fee2e2;
+        border: 1px solid #fecaca;
+        border-radius: var(--radius-md);
+        color: var(--color-danger);
+        font-size: 0.875rem;
+        display: flex;
+        align-items: start;
+        gap: var(--spacing-sm);
+      }
+
+      .error-icon {
+        flex-shrink: 0;
+        font-size: 1.125rem;
+      }
+
+      /* Button */
+      .btn-primary {
+        width: 100%;
+        padding: var(--spacing-md);
+        font-size: 0.875rem;
+        font-weight: 500;
+        color: white;
+        background-color: var(--color-primary);
+        border: none;
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+
+      .btn-primary:hover:not(:disabled) {
+        background-color: var(--color-primary-dark);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+      }
+
+      .btn-primary:active:not(:disabled) {
+        transform: translateY(0);
+      }
+
+      .btn-primary:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      /* Footer */
+      .login-footer {
+        margin-top: var(--spacing-lg);
+        padding-top: var(--spacing-lg);
+        border-top: 1px solid var(--color-border);
+        text-align: center;
+        font-size: 0.75rem;
+        color: var(--color-text-secondary);
+      }
+
+      /* Responsive */
+      @media (max-width: 480px) {
+        .login-container {
+          padding: var(--spacing-lg);
+        }
+
+        .brand-icon {
+          font-size: 2.5rem;
+        }
+
+        .brand-title {
+          font-size: 1.25rem;
+        }
+      }
+
+      /* Accessibility */
+      .visually-hidden {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border-width: 0;
+      }
+    </style>
+  </head>
+  
+  <body>
+    <div class="login-container">
+      <!-- Branding -->
+      <div class="login-brand">
+        <span class="brand-icon" aria-hidden="true">⚡</span>
+        <h1 class="brand-title">PRO SYNAPSE</h1>
+        <p class="brand-subtitle">AI-Powered Supplier Management</p>
+      </div>
+
+      <!-- Login Form -->
+      <form method="POST" action="/login" enctype="application/x-www-form-urlencoded" class="login-form">
+        <h2 class="visually-hidden">Login to your account</h2>
+
+        <!-- CAPSTONE DEMO: Direct Access Link -->
+        <div style="background: #dbeafe; border: 2px solid #3b82f6; border-radius: 8px; padding: 16px; margin-bottom: 24px;">
+          <p style="margin: 0 0 12px 0; font-weight: 600; color: #1e40af;">🎓 CAPSTONE Demo Mode</p>
+          <p style="margin: 0 0 12px 0; font-size: 14px; color: #1e40af;">Click the button below to access the system directly:</p>
+          <a href="/demo-login" style="display: inline-block; background: #3b82f6; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600;">
+            🚀 Enter Demo Dashboard
+          </a>
+          <p style="margin: 12px 0 0 0; font-size: 12px; color: #64748b;">This bypasses Firebase authentication for presentation purposes.</p>
+        </div>
+
+        <!-- Error Message - Requirement 20.3 -->
+        {errorMessage && (
+          <div class="error-message" role="alert">
+            <span class="error-icon" aria-hidden="true">⚠️</span>
+            <span>{errorMessage}</span>
+          </div>
+        )}
+
+        <!-- Email Field -->
+        <div class="form-group">
+          <label for="email">
+            Email Address
+            <span aria-label="required">*</span>
+          </label>
+          <input
+            type="email"
+            id="email"
+            name="email"
+            value={email}
+            required
+            autocomplete="email"
+            placeholder="your.email@example.com"
+            aria-describedby={errorMessage ? "error-message" : undefined}
+          />
+        </div>
+
+        <!-- Password Field -->
+        <div class="form-group">
+          <label for="password">
+            Password
+            <span aria-label="required">*</span>
+          </label>
+          <input
+            type="password"
+            id="password"
+            name="password"
+            required
+            autocomplete="current-password"
+            placeholder="Enter your password"
+            aria-describedby={errorMessage ? "error-message" : undefined}
+          />
+        </div>
+
+        <!-- Submit Button -->
+        <button type="submit" class="btn-primary">
+          Sign In
+        </button>
+      </form>
+
+      <!-- Footer -->
+      <div class="login-footer">
+        <p>&copy; {new Date().getFullYear()} PRO SYNAPSE - TPRO Dynamics</p>
+      </div>
+    </div>
+  </body>
+</html>

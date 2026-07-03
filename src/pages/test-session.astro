@@ -1,0 +1,50 @@
+---
+/**
+ * Test Session Page - Debug cookie setting
+ */
+
+// Try to set cookie with correct name
+Astro.cookies.set('pro_synapse_session', JSON.stringify({
+  userId: 'demo-user-001',
+  email: 'demo@tpro.com',
+  role: 'Administrator',
+  token: 'demo-token-' + Date.now(),
+  expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+}), {
+  path: '/',
+  maxAge: 60 * 60,
+  sameSite: 'strict',
+});
+
+// Read it back
+const sessionCookie = Astro.cookies.get('pro_synapse_session');
+const sessionValue = sessionCookie ? sessionCookie.value : 'No cookie found';
+---
+
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Session Test</title>
+  <style>
+    body { font-family: system-ui; padding: 40px; }
+    .box { background: #f0f0f0; padding: 20px; margin: 20px 0; border-radius: 8px; }
+    code { background: #e0e0e0; padding: 4px 8px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>Session Cookie Test</h1>
+  
+  <div class="box">
+    <h2>Cookie Value:</h2>
+    <code>{sessionValue}</code>
+  </div>
+
+  <div class="box">
+    <h2>Next Steps:</h2>
+    <p>1. If you see JSON above, the cookie is working</p>
+    <p>2. Click this link: <a href="/">Go to Dashboard</a></p>
+    <p>3. Or use this button:</p>
+    <a href="/" style="display: inline-block; background: #3b82f6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin-top: 10px;">Access Dashboard</a>
+  </div>
+</body>
+</html>

@@ -1,0 +1,372 @@
+---
+/**
+ * Product List Page - Firestore Connected
+ * 
+ * Displays a searchable list of all products.
+ * Uses client-side rendering for real-time Firestore updates.
+ */
+
+import ModernLayout from '../../layouts/ModernLayout.astro';
+
+// Disable caching to ensure fresh data on every visit
+Astro.response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+---
+
+<ModernLayout title="Products">
+  <!-- Page Header -->
+  <div class="page-header">
+    <div class="page-header-content">
+      <h1>Products</h1>
+      <p>Manage your product catalog and inventory</p>
+    </div>
+    <div class="page-header-actions">
+      <button class="btn btn-secondary">
+        <span class="material-symbols-outlined">download</span>
+        Export
+      </button>
+      <a href="/products/new" class="btn btn-primary">
+        <span class="material-symbols-outlined">add</span>
+        Add Product
+      </a>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="stats-grid" id="stats-grid">
+    <div class="stat-card">
+      <div class="stat-icon-wrapper" style="background: #dbeafe; color: #1e40af;">
+        <span class="material-symbols-outlined">inventory_2</span>
+      </div>
+      <div class="stat-content">
+        <h3>Total Products</h3>
+        <div class="stat-value" id="total-products">-</div>
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-icon-wrapper" style="background: #d1fae5; color: #059669;">
+        <span class="material-symbols-outlined">check_circle</span>
+      </div>
+      <div class="stat-content">
+        <h3>Active</h3>
+        <div class="stat-value" id="active-products">-</div>
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-icon-wrapper" style="background: #fed7aa; color: #92400e;">
+        <span class="material-symbols-outlined">category</span>
+      </div>
+      <div class="stat-content">
+        <h3>Categories</h3>
+        <div class="stat-value" id="categories-count">-</div>
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-icon-wrapper" style="background: #e0e7ff; color: #4338ca;">
+        <span class="material-symbols-outlined">link</span>
+      </div>
+      <div class="stat-content">
+        <h3>With Suppliers</h3>
+        <div class="stat-value" id="with-suppliers">-</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Search and Filters -->
+  <div class="card mb-6">
+    <div class="card-body">
+      <div class="search-bar">
+        <div class="search-input-wrapper">
+          <span class="material-symbols-outlined search-icon">search</span>
+          <input 
+            type="text" 
+            id="search-input"
+            class="search-input" 
+            placeholder="Search products by SKU, description, or category..."
+          />
+        </div>
+        <select id="category-filter" class="form-select" style="width: auto;">
+          <option value="">All Categories</option>
+          <option value="hand-tools">Hand Tools</option>
+          <option value="power-tools">Power Tools</option>
+          <option value="hardware">Hardware</option>
+          <option value="electrical">Electrical</option>
+          <option value="plumbing">Plumbing</option>
+          <option value="paint">Paint & Coatings</option>
+          <option value="safety">Safety Equipment</option>
+          <option value="other">Other</option>
+        </select>
+        <select id="status-filter" class="form-select" style="width: auto;">
+          <option value="all">All Status</option>
+          <option value="active">Active</option>
+          <option value="inactive">Inactive</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading State -->
+  <div id="loading-state" class="loading-container">
+    <div class="spinner"></div>
+    <p style="margin-top: 1rem; color: var(--text-secondary);">Loading products from Firestore...</p>
+  </div>
+
+  <!-- Error Display -->
+  <div id="error-display" class="hidden">
+    <div class="alert alert-danger mb-6">
+      <span class="material-symbols-outlined">error</span>
+      <div>
+        <strong>Error Loading Products:</strong> <span id="error-message"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Products Table -->
+  <div id="products-content" class="card hidden">
+    <div class="card-header">
+      <h2>All Products</h2>
+      <span class="badge badge-info" id="product-count">0 products</span>
+    </div>
+    <div id="empty-state" class="empty-state hidden">
+      <span class="material-symbols-outlined empty-state-icon">inventory_2</span>
+      <h3>No Products Yet</h3>
+      <p>Get started by adding your first product to the catalog</p>
+      <a href="/products/new" class="btn btn-primary" style="margin-top: 1rem;">
+        <span class="material-symbols-outlined">add</span>
+        Add Your First Product
+      </a>
+    </div>
+    <div id="table-container" class="table-container hidden">
+      <table>
+        <thead>
+          <tr>
+            <th>Product</th>
+            <th>Category</th>
+            <th>Unit</th>
+            <th>Reorder Point</th>
+            <th>Suppliers</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="products-tbody">
+          <!-- Populated by JavaScript -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Firestore Status -->
+  <div id="firestore-status" class="alert alert-success mt-6 hidden">
+    <span class="material-symbols-outlined">check_circle</span>
+    <div>
+      <strong>Connected to Firestore:</strong> <span id="status-message"></span>
+    </div>
+  </div>
+</ModernLayout>
+
+<script>
+  import { productService } from '../../services/products/ProductService';
+  import type { Product } from '../../types/models';
+
+  // Elements
+  const loadingState = document.getElementById('loading-state')!;
+  const errorDisplay = document.getElementById('error-display')!;
+  const errorMessage = document.getElementById('error-message')!;
+  const productsContent = document.getElementById('products-content')!;
+  const emptyState = document.getElementById('empty-state')!;
+  const tableContainer = document.getElementById('table-container')!;
+  const productsTbody = document.getElementById('products-tbody')!;
+  const productCount = document.getElementById('product-count')!;
+  const firestoreStatus = document.getElementById('firestore-status')!;
+  const statusMessage = document.getElementById('status-message')!;
+  const searchInput = document.getElementById('search-input') as HTMLInputElement;
+  const categoryFilter = document.getElementById('category-filter') as HTMLSelectElement;
+  const statusFilter = document.getElementById('status-filter') as HTMLSelectElement;
+
+  // Stats elements
+  const totalProductsEl = document.getElementById('total-products')!;
+  const activeProductsEl = document.getElementById('active-products')!;
+  const categoriesCountEl = document.getElementById('categories-count')!;
+  const withSuppliersEl = document.getElementById('with-suppliers')!;
+
+  let allProducts: Product[] = [];
+  let filteredProducts: Product[] = [];
+
+  // Format date helper
+  const formatDate = (date: Date) => {
+    return new Intl.DateTimeFormat('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    }).format(date);
+  };
+
+  // Update stats
+  const updateStats = (products: Product[]) => {
+    totalProductsEl.textContent = products.length.toString();
+    activeProductsEl.textContent = products.filter(p => p.isActive).length.toString();
+    
+    const uniqueCategories = new Set(products.map(p => p.category));
+    categoriesCountEl.textContent = uniqueCategories.size.toString();
+    
+    withSuppliersEl.textContent = products.filter(p => p.supplierMappings.length > 0).length.toString();
+  };
+
+  // Render products table
+  const renderProducts = (products: Product[]) => {
+    productsTbody.innerHTML = '';
+    
+    if (products.length === 0) {
+      emptyState.classList.remove('hidden');
+      tableContainer.classList.add('hidden');
+      return;
+    }
+
+    emptyState.classList.add('hidden');
+    tableContainer.classList.remove('hidden');
+
+    products.forEach(product => {
+      const row = document.createElement('tr');
+      row.innerHTML = `
+        <td>
+          <div class="flex items-center gap-2">
+            <span class="material-symbols-outlined" style="color: var(--primary);">inventory_2</span>
+            <div>
+              <div class="font-semibold">${product.description}</div>
+              <div class="text-xs text-muted">${product.sku}</div>
+            </div>
+          </div>
+        </td>
+        <td class="text-sm">${product.category}</td>
+        <td class="text-sm">${product.unitOfMeasure}</td>
+        <td class="text-sm">${product.reorderPoint}</td>
+        <td class="text-sm">
+          ${product.supplierMappings.length > 0 
+            ? `<span class="badge badge-info">${product.supplierMappings.length} supplier${product.supplierMappings.length > 1 ? 's' : ''}</span>`
+            : '<span class="text-muted">-</span>'}
+        </td>
+        <td>
+          ${product.isActive 
+            ? '<span class="badge badge-success">Active</span>' 
+            : '<span class="badge badge-danger">Inactive</span>'}
+        </td>
+        <td>
+          <div class="flex gap-2">
+            <a href="/products/${product.sku}" class="btn-ghost" style="padding: 0.5rem;" title="View details">
+              <span class="material-symbols-outlined" style="font-size: 20px;">visibility</span>
+            </a>
+            <button class="btn-ghost" style="padding: 0.5rem;" title="Edit">
+              <span class="material-symbols-outlined" style="font-size: 20px;">edit</span>
+            </button>
+          </div>
+        </td>
+      `;
+      productsTbody.appendChild(row);
+    });
+
+    productCount.textContent = `${products.length} product${products.length !== 1 ? 's' : ''}`;
+  };
+
+  // Filter products
+  const filterProducts = () => {
+    const searchText = searchInput.value.toLowerCase().trim();
+    const category = categoryFilter.value;
+    const status = statusFilter.value;
+
+    filteredProducts = allProducts.filter(product => {
+      // Category filter
+      if (category && product.category !== category) return false;
+
+      // Status filter
+      if (status === 'active' && !product.isActive) return false;
+      if (status === 'inactive' && product.isActive) return false;
+
+      // Search filter
+      if (searchText) {
+        const skuMatch = product.sku.toLowerCase().includes(searchText);
+        const descMatch = product.description.toLowerCase().includes(searchText);
+        const categoryMatch = product.category.toLowerCase().includes(searchText);
+        return skuMatch || descMatch || categoryMatch;
+      }
+
+      return true;
+    });
+
+    renderProducts(filteredProducts);
+  };
+
+  // Load products from Firestore
+  const loadProducts = async () => {
+    try {
+      loadingState.classList.remove('hidden');
+      errorDisplay.classList.add('hidden');
+      productsContent.classList.add('hidden');
+      firestoreStatus.classList.add('hidden');
+
+      // Fetch all products
+      allProducts = await productService.getAllProducts();
+      filteredProducts = allProducts;
+
+      // Show content
+      loadingState.classList.add('hidden');
+      productsContent.classList.remove('hidden');
+      firestoreStatus.classList.remove('hidden');
+
+      // Update stats
+      updateStats(allProducts);
+
+      // Render products
+      renderProducts(filteredProducts);
+
+      // Update status message
+      statusMessage.textContent = `Displaying ${allProducts.length} product(s) from your database. All changes are saved automatically.`;
+
+    } catch (err) {
+      loadingState.classList.add('hidden');
+      errorDisplay.classList.remove('hidden');
+      
+      const errMsg = err instanceof Error ? err.message : 'Failed to load products';
+      errorMessage.textContent = errMsg;
+      
+      console.error('Error loading products:', err);
+    }
+  };
+
+  // Event listeners
+  searchInput.addEventListener('input', filterProducts);
+  categoryFilter.addEventListener('change', filterProducts);
+  statusFilter.addEventListener('change', filterProducts);
+
+  // Load products on page load
+  loadProducts();
+</script>
+
+<style>
+  .loading-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 2rem;
+  }
+
+  .spinner {
+    width: 48px;
+    height: 48px;
+    border: 4px solid #e5e7eb;
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .hidden {
+    display: none !important;
+  }
+</style>

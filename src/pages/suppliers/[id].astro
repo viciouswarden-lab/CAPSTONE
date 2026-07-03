@@ -1,0 +1,564 @@
+---
+/**
+ * Supplier Detail/Edit Page
+ * 
+ * Displays supplier details and allows editing with validation.
+ * Supports deactivation with confirmation dialog.
+ * 
+ * Requirements: 2.1, 2.2, 2.3
+ * Task: 24.2
+ */
+
+import MainLayout from '../../layouts/MainLayout.astro';
+import ErrorMessage from '../../components/ErrorMessage.astro';
+import LoadingSpinner from '../../components/LoadingSpinner.astro';
+import Modal from '../../components/Modal.astro';
+import { supplierService } from '../../services/suppliers/SupplierService';
+import type { Supplier } from '../../types/models';
+
+// Get supplier ID from URL
+const { id } = Astro.params;
+
+if (!id) {
+  return Astro.redirect('/suppliers');
+}
+
+// Fetch supplier data
+let supplier: Supplier | null = null;
+let error: string | null = null;
+let loading = true;
+
+try {
+  supplier = await supplierService.getSupplier(id);
+  loading = false;
+  
+  if (!supplier) {
+    error = 'Supplier not found';
+  }
+} catch (e) {
+  loading = false;
+  error = e instanceof Error ? e.message : 'Failed to load supplier';
+}
+
+// Format dates for display
+const formatDate = (date: Date): string => {
+  return new Intl.DateTimeFormat('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(date);
+};
+---
+
+<MainLayout title={supplier ? `Supplier: ${supplier.name}` : 'Supplier Details'} requireAuth={true} requiredRole="Analyst">
+  <div class="supplier-detail-page">
+    <!-- Page Header -->
+    <div class="page-header mb-6">
+      <div class="flex items-center justify-between">
+        <div>
+          <a href="/suppliers" class="back-link text-blue-600 hover:text-blue-800 flex items-center gap-1 mb-2">
+            <span>←</span>
+            <span>Back to Suppliers</span>
+          </a>
+          <h1 class="text-3xl font-bold">
+            {supplier ? supplier.name : 'Supplier Details'}
+          </h1>
+          {supplier && (
+            <span class={`status-badge inline-block mt-2 px-3 py-1 rounded-full text-sm font-medium ${supplier.isActive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+              {supplier.isActive ? 'Active' : 'Inactive'}
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+
+    <!-- Error Display -->
+    {error && (
+      <ErrorMessage message={error} type="error" />
+    )}
+
+    <!-- Loading State -->
+    {loading && (
+      <LoadingSpinner message="Loading supplier details..." />
+    )}
+
+    <!-- Supplier Details & Edit Form -->
+    {supplier && !loading && (
+      <div class="supplier-content grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Main Content - Edit Form -->
+        <div class="lg:col-span-2">
+          <div class="card bg-white rounded-lg shadow p-6">
+            <div class="flex items-center justify-between mb-6">
+              <h2 class="text-xl font-semibold">Supplier Information</h2>
+              <div class="action-buttons flex gap-2">
+                <button
+                  type="button"
+                  id="edit-btn"
+                  class="btn-edit px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                >
+                  Edit
+                </button>
+                {supplier.isActive ? (
+                  <button
+                    type="button"
+                    id="deactivate-btn"
+                    class="btn-deactivate px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
+                  >
+                    Deactivate
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    id="reactivate-btn"
+                    class="btn-reactivate px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
+                  >
+                    Reactivate
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <!-- View Mode -->
+            <div id="view-mode">
+              <dl class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="field">
+                  <dt class="text-sm font-medium text-gray-500">Supplier Name</dt>
+                  <dd class="mt-1 text-base text-gray-900">{supplier.name}</dd>
+                </div>
+
+                <div class="field">
+                  <dt class="text-sm font-medium text-gray-500">Contact Person</dt>
+                  <dd class="mt-1 text-base text-gray-900">{supplier.contactPerson}</dd>
+                </div>
+
+                <div class="field">
+                  <dt class="text-sm font-medium text-gray-500">Email</dt>
+                  <dd class="mt-1 text-base text-gray-900">
+                    <a href={`mailto:${supplier.email}`} class="text-blue-600 hover:text-blue-800">
+                      {supplier.email}
+                    </a>
+                  </dd>
+                </div>
+
+                <div class="field">
+                  <dt class="text-sm font-medium text-gray-500">Phone</dt>
+                  <dd class="mt-1 text-base text-gray-900">
+                    <a href={`tel:${supplier.phone}`} class="text-blue-600 hover:text-blue-800">
+                      {supplier.phone}
+                    </a>
+                  </dd>
+                </div>
+
+                <div class="field md:col-span-2">
+                  <dt class="text-sm font-medium text-gray-500">Address</dt>
+                  <dd class="mt-1 text-base text-gray-900">{supplier.address}</dd>
+                </div>
+              </dl>
+            </div>
+
+            <!-- Edit Mode (Hidden by default) -->
+            <form id="edit-form" class="hidden" data-supplier-id={supplier.supplierId}>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="form-group md:col-span-2">
+                  <label for="name" class="block text-sm font-medium text-gray-700 mb-1">
+                    Supplier Name <span class="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    id="name"
+                    name="name"
+                    value={supplier.name}
+                    required
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <div id="name-error" class="field-error hidden"></div>
+                </div>
+
+                <div class="form-group">
+                  <label for="contactPerson" class="block text-sm font-medium text-gray-700 mb-1">
+                    Contact Person <span class="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    id="contactPerson"
+                    name="contactPerson"
+                    value={supplier.contactPerson}
+                    required
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <div id="contactPerson-error" class="field-error hidden"></div>
+                </div>
+
+                <div class="form-group">
+                  <label for="email" class="block text-sm font-medium text-gray-700 mb-1">
+                    Email <span class="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="email"
+                    id="email"
+                    name="email"
+                    value={supplier.email}
+                    required
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <div id="email-error" class="field-error hidden"></div>
+                </div>
+
+                <div class="form-group">
+                  <label for="phone" class="block text-sm font-medium text-gray-700 mb-1">
+                    Phone <span class="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="tel"
+                    id="phone"
+                    name="phone"
+                    value={supplier.phone}
+                    required
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <div id="phone-error" class="field-error hidden"></div>
+                </div>
+
+                <div class="form-group md:col-span-2">
+                  <label for="address" class="block text-sm font-medium text-gray-700 mb-1">
+                    Address <span class="text-red-500">*</span>
+                  </label>
+                  <textarea
+                    id="address"
+                    name="address"
+                    rows="3"
+                    required
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >{supplier.address}</textarea>
+                  <div id="address-error" class="field-error hidden"></div>
+                </div>
+              </div>
+
+              <div id="form-error" class="mt-4 hidden"></div>
+
+              <div class="form-actions mt-6 flex gap-3 justify-end">
+                <button
+                  type="button"
+                  id="cancel-btn"
+                  class="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  id="save-btn"
+                  class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- Sidebar - Metadata -->
+        <div class="lg:col-span-1">
+          <div class="card bg-white rounded-lg shadow p-6">
+            <h3 class="text-lg font-semibold mb-4">Metadata</h3>
+            <dl class="space-y-3">
+              <div>
+                <dt class="text-sm font-medium text-gray-500">Supplier ID</dt>
+                <dd class="mt-1 text-sm text-gray-900 font-mono">{supplier.supplierId}</dd>
+              </div>
+              <div>
+                <dt class="text-sm font-medium text-gray-500">Created</dt>
+                <dd class="mt-1 text-sm text-gray-900">{formatDate(supplier.createdAt)}</dd>
+              </div>
+              <div>
+                <dt class="text-sm font-medium text-gray-500">Last Updated</dt>
+                <dd class="mt-1 text-sm text-gray-900">{formatDate(supplier.updatedAt)}</dd>
+              </div>
+              <div>
+                <dt class="text-sm font-medium text-gray-500">Created By</dt>
+                <dd class="mt-1 text-sm text-gray-900">{supplier.createdBy}</dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+      </div>
+    )}
+
+    <!-- Deactivation Confirmation Modal -->
+    <Modal 
+      title={supplier?.isActive ? "Deactivate Supplier" : "Reactivate Supplier"}
+      type={supplier?.isActive ? "danger" : "success"}
+      closable={true}
+    >
+      <p class="text-gray-700">
+        {supplier?.isActive 
+          ? `Are you sure you want to deactivate ${supplier?.name}? This supplier will be marked as inactive but historical data will be preserved.`
+          : `Are you sure you want to reactivate ${supplier?.name}? This supplier will be marked as active again.`
+        }
+      </p>
+      <div slot="footer">
+        <button
+          type="button"
+          class="btn-cancel px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          id="confirm-status-change"
+          class={`px-4 py-2 text-sm font-medium text-white rounded-md transition-colors ${
+            supplier?.isActive
+              ? 'bg-red-600 hover:bg-red-700'
+              : 'bg-green-600 hover:bg-green-700'
+          }`}
+        >
+          {supplier?.isActive ? 'Deactivate' : 'Reactivate'}
+        </button>
+      </div>
+    </Modal>
+  </div>
+</MainLayout>
+
+<style>
+  .back-link {
+    font-size: 0.875rem;
+    transition: color 0.2s;
+  }
+
+  .status-badge {
+    font-weight: 500;
+  }
+
+  .card {
+    transition: box-shadow 0.2s;
+  }
+
+  .card:hover {
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  }
+
+  .field-error {
+    color: #dc2626;
+    font-size: 0.875rem;
+    margin-top: 0.25rem;
+  }
+
+  .field-error:not(.hidden) {
+    display: block;
+  }
+
+  @media (max-width: 768px) {
+    .action-buttons {
+      flex-direction: column;
+      width: 100%;
+    }
+
+    .action-buttons button {
+      width: 100%;
+    }
+  }
+</style>
+
+<script>
+  /**
+   * Client-side functionality for supplier detail/edit page
+   * Handles form validation, submission, and status changes
+   */
+
+  interface ValidationResult {
+    valid: boolean;
+    errors: Record<string, string>;
+  }
+
+  // DOM elements
+  const editBtn = document.getElementById('edit-btn');
+  const cancelBtn = document.getElementById('cancel-btn');
+  const saveBtn = document.getElementById('save-btn');
+  const deactivateBtn = document.getElementById('deactivate-btn');
+  const reactivateBtn = document.getElementById('reactivate-btn');
+  const confirmStatusChangeBtn = document.getElementById('confirm-status-change');
+  
+  const viewMode = document.getElementById('view-mode');
+  const editForm = document.getElementById('edit-form') as HTMLFormElement;
+  const formError = document.getElementById('form-error');
+  
+  const statusModal = document.querySelector('.modal-backdrop') as any;
+
+  // Toggle between view and edit modes
+  editBtn?.addEventListener('click', () => {
+    viewMode?.classList.add('hidden');
+    editForm?.classList.remove('hidden');
+    editBtn.classList.add('hidden');
+    deactivateBtn?.classList.add('hidden');
+    reactivateBtn?.classList.add('hidden');
+  });
+
+  cancelBtn?.addEventListener('click', () => {
+    viewMode?.classList.remove('hidden');
+    editForm?.classList.add('hidden');
+    editBtn?.classList.remove('hidden');
+    deactivateBtn?.classList.remove('hidden');
+    reactivateBtn?.classList.remove('hidden');
+    clearErrors();
+  });
+
+  // Form validation
+  function validateForm(formData: FormData): ValidationResult {
+    const errors: Record<string, string> = {};
+
+    // Required field validation
+    const name = formData.get('name')?.toString().trim();
+    const contactPerson = formData.get('contactPerson')?.toString().trim();
+    const email = formData.get('email')?.toString().trim();
+    const phone = formData.get('phone')?.toString().trim();
+    const address = formData.get('address')?.toString().trim();
+
+    if (!name) {
+      errors.name = 'Supplier name is required';
+    }
+
+    if (!contactPerson) {
+      errors.contactPerson = 'Contact person is required';
+    }
+
+    if (!email) {
+      errors.email = 'Email is required';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      errors.email = 'Invalid email format';
+    }
+
+    if (!phone) {
+      errors.phone = 'Phone number is required';
+    }
+
+    if (!address) {
+      errors.address = 'Address is required';
+    }
+
+    return {
+      valid: Object.keys(errors).length === 0,
+      errors
+    };
+  }
+
+  // Display validation errors
+  function displayErrors(errors: Record<string, string>) {
+    clearErrors();
+
+    Object.entries(errors).forEach(([field, message]) => {
+      const errorDiv = document.getElementById(`${field}-error`);
+      if (errorDiv) {
+        errorDiv.textContent = message;
+        errorDiv.classList.remove('hidden');
+      }
+    });
+  }
+
+  // Clear all validation errors
+  function clearErrors() {
+    const errorDivs = document.querySelectorAll('.field-error');
+    errorDivs.forEach(div => {
+      div.textContent = '';
+      div.classList.add('hidden');
+    });
+    
+    if (formError) {
+      formError.textContent = '';
+      formError.classList.add('hidden');
+    }
+  }
+
+  // Handle form submission
+  editForm?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    clearErrors();
+
+    const formData = new FormData(editForm);
+    const validation = validateForm(formData);
+
+    if (!validation.valid) {
+      displayErrors(validation.errors);
+      return;
+    }
+
+    // Disable save button during submission
+    if (saveBtn) {
+      saveBtn.setAttribute('disabled', 'true');
+      saveBtn.textContent = 'Saving...';
+    }
+
+    try {
+      const supplierId = editForm.dataset.supplierId;
+      
+      // Prepare update payload
+      const updates = {
+        name: formData.get('name')?.toString().trim(),
+        contactPerson: formData.get('contactPerson')?.toString().trim(),
+        email: formData.get('email')?.toString().trim(),
+        phone: formData.get('phone')?.toString().trim(),
+        address: formData.get('address')?.toString().trim(),
+      };
+
+      // Make API call using SupplierService (via page reload approach for Astro)
+      const response = await fetch(`/api/suppliers/${supplierId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updates),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update supplier');
+      }
+
+      // Reload page to show updated data
+      window.location.reload();
+    } catch (error) {
+      if (formError) {
+        formError.textContent = error instanceof Error ? error.message : 'Failed to update supplier';
+        formError.classList.remove('hidden');
+        formError.classList.add('text-red-600', 'text-sm');
+      }
+    } finally {
+      if (saveBtn) {
+        saveBtn.removeAttribute('disabled');
+        saveBtn.textContent = 'Save Changes';
+      }
+    }
+  });
+
+  // Show deactivation modal
+  deactivateBtn?.addEventListener('click', () => {
+    statusModal?.modalController?.showModal();
+  });
+
+  // Show reactivation modal
+  reactivateBtn?.addEventListener('click', () => {
+    statusModal?.modalController?.showModal();
+  });
+
+  // Handle status change confirmation
+  confirmStatusChangeBtn?.addEventListener('click', async () => {
+    try {
+      const supplierId = editForm?.dataset.supplierId;
+      const isCurrentlyActive = deactivateBtn !== null;
+      const action = isCurrentlyActive ? 'deactivate' : 'reactivate';
+
+      // Make API call
+      const response = await fetch(`/api/suppliers/${supplierId}/${action}`, {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to ${action} supplier`);
+      }
+
+      // Reload page to show updated status
+      window.location.reload();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Operation failed');
+    }
+  });
+</script>

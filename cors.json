@@ -1,0 +1,7 @@
+[
+  {
+    "origin": ["http://localhost:4321", "http://localhost:3000", "https://tpro-synapse.web.app"],
+    "method": ["GET", "POST", "PUT", "DELETE", "HEAD"],
+    "maxAgeSeconds": 3600
+  }
+]

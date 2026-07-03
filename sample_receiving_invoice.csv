@@ -1,0 +1,6 @@
+supplier_code,description,quantity,expected_qty,unit_price,uom
+CONDUIT-PVC-20,Conduit PVC 20mm,50,48,125.5,PCS
+DRAIN-FLOOR-4,Floor Drain Stainless Steel 4 inch,25,25,220,SET
+DRILL-18V,Cordless Power Drill 18V,30,30,180.75,PCS
+DRILL-HAM-600W,Hammer Drill 600W,20,22,340,SET
+ELBOW-PVC-1/2,PVC Elbow 1/2 inch 90 Degree,40,40,95.25,PCS

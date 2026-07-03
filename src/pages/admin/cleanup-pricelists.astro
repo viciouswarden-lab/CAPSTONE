@@ -1,0 +1,268 @@
+---
+/**
+ * Admin Cleanup - Pricelists
+ * 
+ * Deletes all pricelists, pricelist_items, and price_changes
+ */
+
+import ModernLayout from '../../layouts/ModernLayout.astro';
+---
+
+<ModernLayout title="Cleanup Pricelists">
+  <div class="cleanup-page">
+    <div class="page-header">
+      <h1>Cleanup Pricelists Data</h1>
+      <p class="subtitle">Remove all pricelists, items, and price changes from Firestore</p>
+    </div>
+
+    <div class="card">
+      <div class="card-body">
+        <div class="alert alert-warning mb-4">
+          <span class="material-symbols-outlined">warning</span>
+          <div>
+            <strong>Warning:</strong> This will permanently delete:
+            <ul style="margin-top: 0.5rem;">
+              <li>All pricelists</li>
+              <li>All pricelist items</li>
+              <li>All price change records</li>
+            </ul>
+            This action cannot be undone!
+          </div>
+        </div>
+
+        <div id="status-container" class="hidden mb-4">
+          <div id="status-message"></div>
+        </div>
+
+        <button id="cleanup-btn" class="btn btn-danger">
+          <span class="material-symbols-outlined">delete_forever</span>
+          Delete All Pricelists Data
+        </button>
+
+        <button id="back-btn" class="btn btn-secondary" style="margin-left: 1rem;">
+          <span class="material-symbols-outlined">arrow_back</span>
+          Back to Pricelists
+        </button>
+      </div>
+    </div>
+  </div>
+</ModernLayout>
+
+<script>
+  import { db } from '../../services/firebase';
+  import { collection, getDocs, deleteDoc, doc, writeBatch } from 'firebase/firestore';
+
+  const cleanupBtn = document.getElementById('cleanup-btn') as HTMLButtonElement;
+  const backBtn = document.getElementById('back-btn') as HTMLButtonElement;
+  const statusContainer = document.getElementById('status-container')!;
+  const statusMessage = document.getElementById('status-message')!;
+
+  const showStatus = (message: string, type: 'info' | 'success' | 'error') => {
+    statusContainer.classList.remove('hidden');
+    const alertClass = type === 'success' ? 'alert-success' : type === 'error' ? 'alert-error' : 'alert-info';
+    statusMessage.innerHTML = `
+      <div class="alert ${alertClass}">
+        <span class="material-symbols-outlined">${type === 'success' ? 'check_circle' : type === 'error' ? 'error' : 'info'}</span>
+        <div>${message}</div>
+      </div>
+    `;
+  };
+
+  cleanupBtn.addEventListener('click', async () => {
+    if (!confirm('Are you sure you want to delete ALL pricelist data?\n\nThis includes:\n- All pricelists\n- All pricelist items\n- All price changes\n\nThis cannot be undone!')) {
+      return;
+    }
+
+    if (!confirm('Last chance! This will permanently delete everything. Continue?')) {
+      return;
+    }
+
+    cleanupBtn.disabled = true;
+    cleanupBtn.innerHTML = '<span class="material-symbols-outlined spinning">refresh</span> Deleting...';
+
+    try {
+      showStatus('Starting cleanup...', 'info');
+
+      // Delete price_changes
+      showStatus('Deleting price changes...', 'info');
+      const priceChangesRef = collection(db!, 'price_changes');
+      const priceChangesSnap = await getDocs(priceChangesRef);
+      let deletedPriceChanges = 0;
+      
+      for (const docSnapshot of priceChangesSnap.docs) {
+        await deleteDoc(doc(db!, 'price_changes', docSnapshot.id));
+        deletedPriceChanges++;
+      }
+
+      // Delete pricelist_items
+      showStatus(`Deleted ${deletedPriceChanges} price changes. Deleting pricelist items...`, 'info');
+      const itemsRef = collection(db!, 'pricelist_items');
+      const itemsSnap = await getDocs(itemsRef);
+      let deletedItems = 0;
+      
+      for (const docSnapshot of itemsSnap.docs) {
+        await deleteDoc(doc(db!, 'pricelist_items', docSnapshot.id));
+        deletedItems++;
+        
+        // Update UI every 100 items
+        if (deletedItems % 100 === 0) {
+          showStatus(`Deleted ${deletedPriceChanges} price changes, ${deletedItems} items...`, 'info');
+        }
+      }
+
+      // Delete pricelists
+      showStatus(`Deleted ${deletedPriceChanges} price changes, ${deletedItems} items. Deleting pricelists...`, 'info');
+      const pricelistsRef = collection(db!, 'pricelists');
+      const pricelistsSnap = await getDocs(pricelistsRef);
+      let deletedPricelists = 0;
+      
+      for (const docSnapshot of pricelistsSnap.docs) {
+        await deleteDoc(doc(db!, 'pricelists', docSnapshot.id));
+        deletedPricelists++;
+      }
+
+      showStatus(
+        `<strong>Cleanup Complete!</strong><br>
+        Deleted ${deletedPricelists} pricelists, ${deletedItems} items, and ${deletedPriceChanges} price changes.`,
+        'success'
+      );
+
+      cleanupBtn.innerHTML = '<span class="material-symbols-outlined">check</span> Cleanup Complete';
+
+    } catch (error) {
+      console.error('Cleanup error:', error);
+      showStatus(
+        `<strong>Error during cleanup:</strong><br>${error instanceof Error ? error.message : 'Unknown error'}`,
+        'error'
+      );
+      cleanupBtn.disabled = false;
+      cleanupBtn.innerHTML = '<span class="material-symbols-outlined">delete_forever</span> Delete All Pricelists Data';
+    }
+  });
+
+  backBtn.addEventListener('click', () => {
+    window.location.href = '/pricelists';
+  });
+</script>
+
+<style>
+  .cleanup-page {
+    padding: 2rem;
+    max-width: 800px;
+    margin: 0 auto;
+  }
+
+  .page-header {
+    margin-bottom: 2rem;
+  }
+
+  .page-header h1 {
+    font-size: 2rem;
+    color: #111827;
+    margin-bottom: 0.5rem;
+  }
+
+  .subtitle {
+    color: #6b7280;
+    font-size: 1rem;
+  }
+
+  .card {
+    background: white;
+    border-radius: 0.75rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  }
+
+  .card-body {
+    padding: 2rem;
+  }
+
+  .alert {
+    display: flex;
+    gap: 1rem;
+    padding: 1rem 1.5rem;
+    border-radius: 0.5rem;
+    align-items: flex-start;
+  }
+
+  .alert ul {
+    margin: 0;
+    padding-left: 1.5rem;
+  }
+
+  .alert-warning {
+    background-color: #fef3c7;
+    border: 1px solid #fbbf24;
+    color: #92400e;
+  }
+
+  .alert-info {
+    background-color: #dbeafe;
+    border: 1px solid #60a5fa;
+    color: #1e40af;
+  }
+
+  .alert-success {
+    background-color: #d1fae5;
+    border: 1px solid #34d399;
+    color: #065f46;
+  }
+
+  .alert-error {
+    background-color: #fee2e2;
+    border: 1px solid #f87171;
+    color: #991b1b;
+  }
+
+  .mb-4 {
+    margin-bottom: 1.5rem;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.5rem;
+    border: none;
+    border-radius: 0.5rem;
+    font-size: 1rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .btn-danger {
+    background-color: #dc2626;
+    color: white;
+  }
+
+  .btn-danger:hover:not(:disabled) {
+    background-color: #b91c1c;
+  }
+
+  .btn-secondary {
+    background-color: #6b7280;
+    color: white;
+  }
+
+  .btn-secondary:hover:not(:disabled) {
+    background-color: #4b5563;
+  }
+
+  .hidden {
+    display: none;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .spinning {
+    animation: spin 1s linear infinite;
+  }
+</style>

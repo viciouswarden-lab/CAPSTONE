@@ -1,0 +1,1384 @@
+---
+/**
+ * Product Matching Page - Table View
+ * 
+ * Displays all pricelist items in a table with filters for:
+ * - All items
+ * - Unmatched only
+ * - Suggested matches only
+ * - Matched (confirmed) only
+ * 
+ * Allows bulk actions and individual product management.
+ */
+
+import ModernLayout from '../../layouts/ModernLayout.astro';
+
+Astro.response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+---
+
+<ModernLayout title="Product Matching">
+  <div class="matching-page">
+    <!-- Page Header -->
+    <div class="page-header">
+      <div>
+        <h1>
+          <span class="material-symbols-outlined">link</span>
+          Product Matching
+        </h1>
+        <p class="subtitle">Review and match supplier products to your catalog</p>
+      </div>
+      <div class="page-actions">
+        <button class="btn btn-secondary" id="refresh-btn">
+          <span class="material-symbols-outlined">refresh</span>
+          Refresh
+        </button>
+      </div>
+    </div>
+
+    <!-- Loading State -->
+    <div id="loading-state" class="loading-container">
+      <div class="spinner"></div>
+      <p style="margin-top: 1rem; color: var(--text-secondary);">Loading items...</p>
+    </div>
+
+    <!-- Error Display -->
+    <div id="error-display" class="hidden">
+      <div class="alert alert-error">
+        <span class="material-symbols-outlined">error</span>
+        <div>
+          <strong>Error:</strong> <span id="error-message"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Content -->
+    <div id="content" class="hidden">
+      <!-- Stats Row -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <span class="material-symbols-outlined stat-icon" style="color: #6b7280;">inventory_2</span>
+          <div class="stat-label">Total Items</div>
+          <div class="stat-value" id="total-count">0</div>
+        </div>
+        <div class="stat-card">
+          <span class="material-symbols-outlined stat-icon" style="color: #3b82f6;">new_releases</span>
+          <div class="stat-label">New Products</div>
+          <div class="stat-value" id="unmatched-count" style="color: #3b82f6;">0</div>
+        </div>
+        <div class="stat-card">
+          <span class="material-symbols-outlined stat-icon" style="color: #f59e0b;">help</span>
+          <div class="stat-label">Suggested</div>
+          <div class="stat-value" id="suggested-count" style="color: #f59e0b;">0</div>
+        </div>
+        <div class="stat-card">
+          <span class="material-symbols-outlined stat-icon" style="color: #10b981;">check_circle</span>
+          <div class="stat-label">Matched</div>
+          <div class="stat-value" id="matched-count" style="color: #10b981;">0</div>
+        </div>
+      </div>
+
+      <!-- Filter Tabs -->
+      <div class="tabs-container">
+        <div class="tabs">
+          <button class="tab-btn active" data-filter="all">
+            <span class="material-symbols-outlined">select_all</span>
+            All Items
+            <span class="tab-count" id="tab-all-count">0</span>
+          </button>
+          <button class="tab-btn" data-filter="unmatched">
+            <span class="material-symbols-outlined">new_releases</span>
+            New Products
+            <span class="tab-count" id="tab-unmatched-count">0</span>
+          </button>
+          <button class="tab-btn" data-filter="suggested">
+            <span class="material-symbols-outlined">recommend</span>
+            Suggested
+            <span class="tab-count" id="tab-suggested-count">0</span>
+          </button>
+          <button class="tab-btn" data-filter="matched">
+            <span class="material-symbols-outlined">check_circle</span>
+            Matched
+            <span class="tab-count" id="tab-matched-count">0</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Search and Filters -->
+      <div class="card filters-card">
+        <div class="filters-row">
+          <div class="search-input-wrapper">
+            <span class="material-symbols-outlined search-icon">search</span>
+            <input type="text" id="search-input" class="search-input" 
+                   placeholder="Search by product name, code, or supplier..." />
+          </div>
+          <select id="supplier-filter" class="form-select">
+            <option value="all">All Suppliers</option>
+          </select>
+          <button class="btn btn-secondary" id="clear-filters-btn">
+            <span class="material-symbols-outlined">filter_alt_off</span>
+            Clear
+          </button>
+        </div>
+      </div>
+
+      <!-- Bulk Actions Bar -->
+      <div class="bulk-actions-bar card" id="bulk-actions-bar">
+        <div class="bulk-info">
+          <span id="selected-count">0</span> items selected
+        </div>
+        <div class="bulk-buttons">
+          <button class="btn btn-primary" id="bulk-add-products-btn">
+            <span class="material-symbols-outlined">add_box</span>
+            Add Selected as New Products
+          </button>
+          <button class="btn btn-secondary" id="deselect-all-btn">
+            <span class="material-symbols-outlined">deselect</span>
+            Deselect All
+          </button>
+        </div>
+      </div>
+
+      <!-- Table Card -->
+      <div class="card">
+        <div class="card-header">
+          <h2>Products</h2>
+          <span class="badge badge-info" id="showing-count">Showing 0 items</span>
+        </div>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 50px;">
+                  <input type="checkbox" id="select-all-checkbox" />
+                </th>
+                <th>Status</th>
+                <th>Supplier Product</th>
+                <th>Supplier</th>
+                <th>Price</th>
+                <th>Matched To</th>
+                <th>Confidence</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="items-tbody"></tbody>
+          </table>
+        </div>
+        <div id="empty-state" class="empty-state hidden">
+          <span class="material-symbols-outlined empty-icon">inbox</span>
+          <h3>No Items Found</h3>
+          <p>No items match your current filters.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Add Product Modal -->
+    <div id="add-product-modal" class="modal hidden">
+      <div class="modal-overlay"></div>
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>Add New Product</h2>
+          <button class="btn-ghost" id="close-modal-btn">
+            <span class="material-symbols-outlined">close</span>
+          </button>
+        </div>
+        <div class="modal-body">
+          <form id="add-product-form">
+            <input type="hidden" id="modal-item-id" />
+            
+            <div class="form-group">
+              <label>From Pricelist</label>
+              <div class="info-box">
+                <div><strong>Supplier Code:</strong> <span id="modal-supplier-code"></span></div>
+                <div><strong>Description:</strong> <span id="modal-description"></span></div>
+                <div><strong>Price:</strong> ₱<span id="modal-price"></span></div>
+                <div><strong>UOM:</strong> <span id="modal-uom"></span></div>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="new-sku">Internal SKU <span class="required">*</span></label>
+              <input type="text" id="new-sku" required placeholder="e.g., HW-HAM-003" class="form-input" />
+            </div>
+
+            <div class="form-group">
+              <label for="new-description">Product Description <span class="required">*</span></label>
+              <textarea id="new-description" required rows="2" class="form-input"></textarea>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="new-category">Category <span class="required">*</span></label>
+                <select id="new-category" required class="form-input">
+                  <option value="">Select...</option>
+                  <option value="Hand Tools">Hand Tools</option>
+                  <option value="Power Tools">Power Tools</option>
+                  <option value="Electrical">Electrical</option>
+                  <option value="Plumbing">Plumbing</option>
+                  <option value="Paint">Paint</option>
+                  <option value="Safety">Safety</option>
+                  <option value="Fasteners">Fasteners</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="new-uom">Unit of Measure <span class="required">*</span></label>
+                <select id="new-uom" required class="form-input">
+                  <option value="PCS">Pieces (PCS)</option>
+                  <option value="SET">Set</option>
+                  <option value="BOX">Box</option>
+                  <option value="ROLL">Roll</option>
+                  <option value="GAL">Gallon</option>
+                  <option value="PAIR">Pair</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="new-reorder">Reorder Point <span class="required">*</span></label>
+              <input type="number" id="new-reorder" required min="0" value="10" class="form-input" />
+            </div>
+
+            <div class="modal-actions">
+              <button type="button" class="btn btn-secondary" id="cancel-btn">Cancel</button>
+              <button type="submit" class="btn btn-primary">
+                <span class="material-symbols-outlined">add</span>
+                Add Product
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</ModernLayout>
+
+<script>
+  import { db } from '../../services/firebase';
+  import { collection, getDocs, query, limit as firestoreLimit, doc, updateDoc, getDoc } from 'firebase/firestore';
+
+  const loadingState = document.getElementById('loading-state')!;
+  const errorDisplay = document.getElementById('error-display')!;
+  const errorMessage = document.getElementById('error-message')!;
+  const content = document.getElementById('content')!;
+  const itemsTbody = document.getElementById('items-tbody')!;
+  const emptyState = document.getElementById('empty-state')!;
+
+  const totalCountEl = document.getElementById('total-count')!;
+  const unmatchedCountEl = document.getElementById('unmatched-count')!;
+  const suggestedCountEl = document.getElementById('suggested-count')!;
+  const matchedCountEl = document.getElementById('matched-count')!;
+  const searchInput = document.getElementById('search-input') as HTMLInputElement;
+  const supplierFilter = document.getElementById('supplier-filter') as HTMLSelectElement;
+  const refreshBtn = document.getElementById('refresh-btn')!;
+  const selectAllCheckbox = document.getElementById('select-all-checkbox') as HTMLInputElement;
+  const bulkActionsBar = document.getElementById('bulk-actions-bar')!;
+  const selectedCountEl = document.getElementById('selected-count')!;
+  const bulkAddProductsBtn = document.getElementById('bulk-add-products-btn')!;
+  const deselectAllBtn = document.getElementById('deselect-all-btn')!;
+
+  let allItems: any[] = [];
+  let filteredItems: any[] = [];
+  let currentFilter = 'all';
+  let selectedItems = new Set<string>();
+
+  const formatCurrency = (value: number) => `₱${value.toFixed(2)}`;
+
+  const loadData = async () => {
+    try {
+      loadingState.classList.remove('hidden');
+      errorDisplay.classList.add('hidden');
+      content.classList.add('hidden');
+
+      const itemsRef = collection(db!, 'pricelist_items');
+      const itemsQuery = query(itemsRef, firestoreLimit(1000));
+      const itemsSnapshot = await getDocs(itemsQuery);
+
+      allItems = itemsSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+
+      updateStats();
+      populateSupplierFilter();
+      applyFilters();
+
+      loadingState.classList.add('hidden');
+      content.classList.remove('hidden');
+    } catch (err) {
+      loadingState.classList.add('hidden');
+      errorDisplay.classList.remove('hidden');
+      errorMessage.textContent = err instanceof Error ? err.message : 'Failed to load data';
+      console.error('Error:', err);
+    }
+  };
+
+  const updateStats = () => {
+    const total = allItems.length;
+    const unmatched = allItems.filter(i => i.matchStatus === 'unmatched').length;
+    const suggested = allItems.filter(i => i.matchStatus === 'suggested').length;
+    const matched = allItems.filter(i => i.matchStatus === 'matched').length;
+
+    totalCountEl.textContent = total.toString();
+    unmatchedCountEl.textContent = unmatched.toString();
+    suggestedCountEl.textContent = suggested.toString();
+    matchedCountEl.textContent = matched.toString();
+
+    document.getElementById('tab-all-count')!.textContent = total.toString();
+    document.getElementById('tab-unmatched-count')!.textContent = unmatched.toString();
+    document.getElementById('tab-suggested-count')!.textContent = suggested.toString();
+    document.getElementById('tab-matched-count')!.textContent = matched.toString();
+  };
+
+  const populateSupplierFilter = () => {
+    const suppliers = new Map<string, string>();
+    allItems.forEach(item => {
+      if (item.supplierId && item.supplierName) {
+        suppliers.set(item.supplierId, item.supplierName);
+      }
+    });
+
+    supplierFilter.innerHTML = '<option value="all">All Suppliers</option>';
+    suppliers.forEach((name, id) => {
+      const option = document.createElement('option');
+      option.value = id;
+      option.textContent = name;
+      supplierFilter.appendChild(option);
+    });
+  };
+
+  const applyFilters = () => {
+    filteredItems = allItems.filter(item => {
+      // Status filter
+      if (currentFilter !== 'all' && item.matchStatus !== currentFilter) {
+        return false;
+      }
+
+      // Supplier filter
+      const supplier = supplierFilter.value;
+      if (supplier !== 'all' && item.supplierId !== supplier) {
+        return false;
+      }
+
+      // Search filter
+      const searchText = searchInput.value.toLowerCase();
+      if (searchText) {
+        const matchesSearch = 
+          item.description?.toLowerCase().includes(searchText) ||
+          item.supplierCode?.toLowerCase().includes(searchText) ||
+          item.supplierName?.toLowerCase().includes(searchText) ||
+          item.matchedSKU?.toLowerCase().includes(searchText);
+        if (!matchesSearch) return false;
+      }
+
+      return true;
+    });
+
+    renderTable();
+  };
+
+  const renderTable = () => {
+    itemsTbody.innerHTML = '';
+    document.getElementById('showing-count')!.textContent = `Showing ${filteredItems.length} items`;
+
+    if (filteredItems.length === 0) {
+      emptyState.classList.remove('hidden');
+      document.querySelector('.table-container')?.classList.add('hidden');
+      return;
+    }
+
+    emptyState.classList.add('hidden');
+    document.querySelector('.table-container')?.classList.remove('hidden');
+
+    filteredItems.forEach(item => {
+      const row = document.createElement('tr');
+      const isSelected = selectedItems.has(item.id);
+      if (isSelected) row.classList.add('selected');
+
+      const statusBadge = getStatusBadge(item.matchStatus);
+      const confidence = item.matchConfidence ? Math.round(item.matchConfidence * 100) : 0;
+
+      row.innerHTML = `
+        <td>
+          <input type="checkbox" class="item-checkbox" data-id="${item.id}" ${isSelected ? 'checked' : ''} />
+        </td>
+        <td>${statusBadge}</td>
+        <td>
+          <div class="product-cell">
+            <div class="product-name">${item.description}</div>
+            <div class="product-code">${item.supplierCode}</div>
+          </div>
+        </td>
+        <td class="text-sm">${item.supplierName || 'Unknown'}</td>
+        <td class="font-semibold price-cell">${formatCurrency(item.price)}</td>
+        <td>${item.matchedSKU ? `<span class="matched-sku">${item.matchedSKU}</span>` : '-'}</td>
+        <td>
+          ${confidence > 0 ? `<span class="confidence-badge confidence-${getConfidenceLevel(confidence)}">${confidence}%</span>` : '-'}
+        </td>
+        <td>
+          <div class="action-buttons">
+            ${item.matchStatus === 'suggested' ? `
+              <button class="btn-icon btn-success confirm-btn" data-id="${item.id}" data-sku="${item.matchedSKU}" 
+                      data-supplier-code="${item.supplierCode}" data-supplier-id="${item.supplierId}" data-price="${item.price}" title="Confirm match">
+                <span class="material-symbols-outlined">check</span>
+              </button>
+              <button class="btn-icon btn-danger reject-btn" data-id="${item.id}" title="Reject match">
+                <span class="material-symbols-outlined">close</span>
+              </button>
+            ` : ''}
+            <button class="btn-icon add-btn" data-id="${item.id}" title="Add as new product">
+              <span class="material-symbols-outlined">add</span>
+            </button>
+          </div>
+        </td>
+      `;
+
+      itemsTbody.appendChild(row);
+    });
+
+    attachEventListeners();
+  };
+
+  const getStatusBadge = (status: string) => {
+    const badges = {
+      unmatched: '<span class="badge badge-info">New Product</span>',
+      suggested: '<span class="badge badge-warning">Suggested</span>',
+      matched: '<span class="badge badge-success">Matched</span>'
+    };
+    return badges[status as keyof typeof badges] || '-';
+  };
+
+  const getConfidenceLevel = (confidence: number) => {
+    if (confidence >= 80) return 'high';
+    if (confidence >= 60) return 'medium';
+    return 'low';
+  };
+
+  const attachEventListeners = () => {
+    document.querySelectorAll('.item-checkbox').forEach(checkbox => {
+      checkbox.addEventListener('change', handleCheckboxChange);
+    });
+
+    document.querySelectorAll('.confirm-btn').forEach(btn => {
+      btn.addEventListener('click', handleConfirmMatch);
+    });
+
+    document.querySelectorAll('.reject-btn').forEach(btn => {
+      btn.addEventListener('click', handleRejectMatch);
+    });
+
+    document.querySelectorAll('.add-btn').forEach(btn => {
+      btn.addEventListener('click', handleAddProduct);
+    });
+  };
+
+  const handleCheckboxChange = (e: Event) => {
+    const checkbox = e.target as HTMLInputElement;
+    const itemId = checkbox.dataset.id!;
+    
+    if (checkbox.checked) {
+      selectedItems.add(itemId);
+      checkbox.closest('tr')?.classList.add('selected');
+    } else {
+      selectedItems.delete(itemId);
+      checkbox.closest('tr')?.classList.remove('selected');
+    }
+
+    updateBulkActionsBar();
+  };
+
+  const updateBulkActionsBar = () => {
+    selectedCountEl.textContent = selectedItems.size.toString();
+    
+    if (selectedItems.size > 0) {
+      bulkActionsBar.classList.add('visible');
+    } else {
+      bulkActionsBar.classList.remove('visible');
+    }
+
+    selectAllCheckbox.checked = selectedItems.size === filteredItems.length && filteredItems.length > 0;
+    selectAllCheckbox.indeterminate = selectedItems.size > 0 && selectedItems.size < filteredItems.length;
+  };
+
+  const handleConfirmMatch = async (e: Event) => {
+    const btn = e.currentTarget as HTMLButtonElement;
+    const itemId = btn.dataset.id!;
+    const sku = btn.dataset.sku!;
+    const supplierCode = btn.dataset.supplierCode!;
+    const supplierId = btn.dataset.supplierId!;
+    const price = parseFloat(btn.dataset.price || '0');
+
+    if (!confirm(`Confirm match: ${supplierCode} → ${sku}?`)) return;
+
+    (btn as HTMLButtonElement).disabled = true;
+    btn.innerHTML = '<span class="material-symbols-outlined spinning">refresh</span>';
+
+    try {
+      const { matcherService } = await import('../../services/matching/MatcherService');
+      await matcherService.confirmMatch(supplierCode, sku, supplierId, price);
+
+      await updateDoc(doc(db!, 'pricelist_items', itemId), {
+        matchStatus: 'matched',
+        matchConfidence: 1.0,
+        matchMethod: 'manual'
+      });
+
+      await loadData();
+      alert('Match confirmed!');
+    } catch (error) {
+      console.error('Error:', error);
+      alert(`Error: ${error instanceof Error ? error.message : 'Failed to confirm'}`);
+      (btn as HTMLButtonElement).disabled = false;
+      btn.innerHTML = '<span class="material-symbols-outlined">check</span>';
+    }
+  };
+
+  const handleRejectMatch = async (e: Event) => {
+    const btn = e.currentTarget as HTMLButtonElement;
+    const itemId = btn.dataset.id!;
+
+    if (!confirm('Reject this suggestion?')) return;
+
+    (btn as HTMLButtonElement).disabled = true;
+
+    try {
+      await updateDoc(doc(db!, 'pricelist_items', itemId), {
+        matchStatus: 'unmatched',
+        matchedSKU: null,
+        matchConfidence: null,
+        matchMethod: null
+      });
+
+      await loadData();
+      alert('Match rejected');
+    } catch (error) {
+      console.error('Error:', error);
+      alert(`Error: ${error instanceof Error ? error.message : 'Failed'}`);
+      (btn as HTMLButtonElement).disabled = false;
+    }
+  };
+
+  const handleAddProduct = async (e: Event) => {
+    const btn = e.currentTarget as HTMLButtonElement;
+    const itemId = btn.dataset.id!;
+    const item = allItems.find(i => i.id === itemId);
+    if (!item) return;
+
+    openAddProductModal(item);
+  };
+
+  const handleBulkAddProducts = async () => {
+    if (selectedItems.size === 0) return;
+
+    const count = selectedItems.size;
+    if (!confirm(`Add ${count} selected item(s) as new products?`)) return;
+
+    (bulkAddProductsBtn as HTMLButtonElement).disabled = true;
+    bulkAddProductsBtn.innerHTML = '<span class="material-symbols-outlined spinning">refresh</span> Processing...';
+
+    try {
+      const { productService } = await import('../../services/products/ProductService');
+      let successCount = 0;
+      let errorCount = 0;
+
+      for (const itemId of selectedItems) {
+        const item = allItems.find(i => i.id === itemId);
+        if (!item) continue;
+
+        try {
+          const sku = generateSKU(item.description);
+          
+          await productService.createProduct({
+            sku,
+            description: item.description,
+            category: 'Other',
+            unitOfMeasure: item.unitOfMeasure || 'PCS',
+            reorderPoint: 10,
+            isActive: true,
+            supplierMappings: []
+          });
+
+          await productService.addSupplierMapping(sku, {
+            supplierId: item.supplierId,
+            supplierCode: item.supplierCode,
+            lastCost: item.price,
+            lastCostDate: new Date()
+          });
+
+          await updateDoc(doc(db!, 'pricelist_items', itemId), {
+            matchStatus: 'matched',
+            matchedSKU: sku,
+            matchConfidence: 1.0,
+            matchMethod: 'bulk_add'
+          });
+
+          successCount++;
+        } catch (error) {
+          console.error(`Error adding ${item.supplierCode}:`, error);
+          errorCount++;
+        }
+      }
+
+      selectedItems.clear();
+      await loadData();
+      alert(`Added ${successCount} products successfully!${errorCount > 0 ? `\n${errorCount} failed.` : ''}`);
+    } catch (error) {
+      console.error('Bulk add error:', error);
+      alert('Error adding products');
+    } finally {
+      (bulkAddProductsBtn as HTMLButtonElement).disabled = false;
+      bulkAddProductsBtn.innerHTML = '<span class="material-symbols-oriented">add_box</span> Add Selected as New Products';
+    }
+  };
+
+  const generateSKU = (description: string): string => {
+    const words = description.toUpperCase().split(' ').filter(w => w.length > 2);
+    const prefix = words.slice(0, 2).map(w => w.substring(0, 3)).join('-');
+    const timestamp = Date.now().toString().slice(-4);
+    return `${prefix}-${timestamp}`;
+  };
+
+  const openAddProductModal = (item: any) => {
+    const modal = document.getElementById('add-product-modal')!;
+    (document.getElementById('modal-item-id') as HTMLInputElement).value = item.id;
+    document.getElementById('modal-supplier-code')!.textContent = item.supplierCode;
+    document.getElementById('modal-description')!.textContent = item.description;
+    document.getElementById('modal-price')!.textContent = item.price.toFixed(2);
+    document.getElementById('modal-uom')!.textContent = item.unitOfMeasure || 'PCS';
+
+    (document.getElementById('new-description') as HTMLTextAreaElement).value = item.description;
+    (document.getElementById('new-uom') as HTMLSelectElement).value = item.unitOfMeasure || 'PCS';
+    (document.getElementById('new-sku') as HTMLInputElement).value = generateSKU(item.description);
+
+    modal.classList.remove('hidden');
+  };
+
+  const closeModal = () => {
+    document.getElementById('add-product-modal')!.classList.add('hidden');
+    (document.getElementById('add-product-form') as HTMLFormElement).reset();
+  };
+
+  const handleAddProductSubmit = async (e: Event) => {
+    e.preventDefault();
+
+    const itemId = (document.getElementById('modal-item-id') as HTMLInputElement).value;
+    const sku = (document.getElementById('new-sku') as HTMLInputElement).value.trim();
+    const description = (document.getElementById('new-description') as HTMLTextAreaElement).value.trim();
+    const category = (document.getElementById('new-category') as HTMLSelectElement).value;
+    const uom = (document.getElementById('new-uom') as HTMLSelectElement).value;
+    const reorderPoint = parseInt((document.getElementById('new-reorder') as HTMLInputElement).value);
+
+    const item = allItems.find(i => i.id === itemId);
+    if (!item) return;
+
+    try {
+      const { productService } = await import('../../services/products/ProductService');
+      
+      await productService.createProduct({
+        sku,
+        description,
+        category,
+        unitOfMeasure: uom,
+        reorderPoint,
+        isActive: true,
+        supplierMappings: []
+      });
+
+      await productService.addSupplierMapping(sku, {
+        supplierId: item.supplierId,
+        supplierCode: item.supplierCode,
+        lastCost: item.price,
+        lastCostDate: new Date()
+      });
+
+      await updateDoc(doc(db!, 'pricelist_items', itemId), {
+        matchStatus: 'matched',
+        matchedSKU: sku,
+        matchConfidence: 1.0,
+        matchMethod: 'manual'
+      });
+
+      closeModal();
+      await loadData();
+      alert(`Product created: ${sku}`);
+    } catch (error) {
+      console.error('Error:', error);
+      alert(`Error: ${error instanceof Error ? error.message : 'Failed'}`);
+    }
+  };
+
+  // Event Listeners
+  refreshBtn.addEventListener('click', loadData);
+
+  selectAllCheckbox.addEventListener('change', (e) => {
+    const checked = (e.target as HTMLInputElement).checked;
+    selectedItems.clear();
+    
+    if (checked) {
+      filteredItems.forEach(item => selectedItems.add(item.id));
+    }
+    
+    renderTable();
+    updateBulkActionsBar();
+  });
+
+  bulkAddProductsBtn.addEventListener('click', handleBulkAddProducts);
+  
+  deselectAllBtn.addEventListener('click', () => {
+    selectedItems.clear();
+    renderTable();
+    updateBulkActionsBar();
+  });
+
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const target = e.currentTarget as HTMLButtonElement;
+      currentFilter = target.dataset.filter!;
+      
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      target.classList.add('active');
+      
+      applyFilters();
+    });
+  });
+
+  searchInput.addEventListener('input', applyFilters);
+  supplierFilter.addEventListener('change', applyFilters);
+
+  document.getElementById('clear-filters-btn')!.addEventListener('click', () => {
+    searchInput.value = '';
+    supplierFilter.value = 'all';
+    applyFilters();
+  });
+
+  document.getElementById('close-modal-btn')!.addEventListener('click', closeModal);
+  document.getElementById('cancel-btn')!.addEventListener('click', closeModal);
+  document.getElementById('add-product-form')!.addEventListener('submit', handleAddProductSubmit);
+
+  loadData();
+</script>
+
+<style>
+  .matching-page {
+    padding: 1.5rem;
+    max-width: 1600px;
+    margin: 0 auto;
+  }
+
+  .page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 2rem;
+  }
+
+  .page-header h1 {
+    font-size: 2rem;
+    font-weight: 600;
+    margin: 0 0 0.5rem 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .subtitle {
+    color: var(--text-secondary);
+    margin: 0;
+  }
+
+  .page-actions {
+    display: flex;
+    gap: 0.75rem;
+  }
+
+  .loading-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 2rem;
+  }
+
+  .spinner {
+    width: 48px;
+    height: 48px;
+    border: 4px solid var(--border-color);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .spinning {
+    animation: spin 0.8s linear infinite;
+  }
+
+  .hidden {
+    display: none !important;
+  }
+
+  .alert {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 1rem;
+    border-radius: 8px;
+    margin-bottom: 1.5rem;
+  }
+
+  .alert-error {
+    background: #fef2f2;
+    color: #991b1b;
+    border: 1px solid #fca5a5;
+  }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+  }
+
+  .stat-card {
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .stat-icon {
+    font-size: 40px;
+  }
+
+  .stat-label {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.25rem;
+  }
+
+  .stat-value {
+    font-size: 2rem;
+    font-weight: 600;
+  }
+
+  .tabs-container {
+    margin-bottom: 1.5rem;
+  }
+
+  .tabs {
+    display: flex;
+    gap: 0.5rem;
+    border-bottom: 2px solid var(--border-color);
+    overflow-x: auto;
+  }
+
+  .tab-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.5rem;
+    background: transparent;
+    border: none;
+    border-bottom: 3px solid transparent;
+    cursor: pointer;
+    font-weight: 500;
+    color: var(--text-secondary);
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+
+  .tab-btn:hover {
+    color: var(--primary);
+    background: var(--surface-secondary);
+  }
+
+  .tab-btn.active {
+    color: var(--primary);
+    border-bottom-color: var(--primary);
+  }
+
+  .tab-count {
+    background: var(--surface-secondary);
+    padding: 0.125rem 0.5rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+
+  .tab-btn.active .tab-count {
+    background: var(--primary);
+    color: white;
+  }
+
+  .card {
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .filters-card {
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .filters-row {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    gap: 1rem;
+    align-items: center;
+  }
+
+  .search-input-wrapper {
+    position: relative;
+  }
+
+  .search-icon {
+    position: absolute;
+    left: 1rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-secondary);
+    pointer-events: none;
+  }
+
+  .search-input {
+    width: 100%;
+    padding: 0.75rem 1rem 0.75rem 3rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 0.875rem;
+  }
+
+  .search-input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  }
+
+  .form-select {
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 0.875rem;
+    min-width: 180px;
+  }
+
+  .form-select:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  }
+
+  .bulk-actions-bar {
+    padding: 1rem 1.5rem;
+    margin-bottom: 1.5rem;
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+    border: 2px solid #3b82f6;
+  }
+
+  .bulk-actions-bar.visible {
+    display: flex;
+  }
+
+  .bulk-info {
+    font-weight: 600;
+    color: #1e40af;
+  }
+
+  .bulk-buttons {
+    display: flex;
+    gap: 0.75rem;
+  }
+
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem;
+    background: var(--surface-secondary);
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .card-header h2 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+  }
+
+  .table-container {
+    overflow-x: auto;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  thead th {
+    background: var(--surface-secondary);
+    padding: 1rem;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    border-bottom: 2px solid var(--border-color);
+  }
+
+  tbody td {
+    padding: 1rem;
+    border-bottom: 1px solid var(--border-color);
+    vertical-align: middle;
+  }
+
+  tbody tr:hover {
+    background: var(--surface-secondary);
+  }
+
+  tbody tr.selected {
+    background: #eff6ff;
+  }
+
+  .product-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .product-name {
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .product-code {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+  }
+
+  .matched-sku {
+    font-weight: 600;
+    color: var(--primary);
+  }
+
+  .price-cell {
+    color: #059669;
+    font-size: 1.125rem;
+  }
+
+  .confidence-badge {
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+
+  .confidence-high {
+    background: #d1fae5;
+    color: #059669;
+  }
+
+  .confidence-medium {
+    background: #fef3c7;
+    color: #d97706;
+  }
+
+  .confidence-low {
+    background: #fee2e2;
+    color: #dc2626;
+  }
+
+  .action-buttons {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.5rem;
+    border-radius: 6px;
+    font-weight: 500;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .btn-primary {
+    background: var(--primary);
+    color: white;
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    background: var(--primary-dark);
+  }
+
+  .btn-secondary {
+    background: white;
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+  }
+
+  .btn-secondary:hover {
+    background: var(--surface-secondary);
+  }
+
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .btn-icon {
+    padding: 0.5rem;
+    border: none;
+    background: transparent;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .btn-icon:hover {
+    background: var(--surface-secondary);
+  }
+
+  .btn-success {
+    color: #059669;
+  }
+
+  .btn-success:hover {
+    background: #d1fae5;
+  }
+
+  .btn-danger {
+    color: #dc2626;
+  }
+
+  .btn-danger:hover {
+    background: #fee2e2;
+  }
+
+  .badge {
+    display: inline-flex;
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+
+  .badge-success {
+    background: #d1fae5;
+    color: #059669;
+  }
+
+  .badge-warning {
+    background: #fef3c7;
+    color: #d97706;
+  }
+
+  .badge-danger {
+    background: #fee2e2;
+    color: #dc2626;
+  }
+
+  .badge-info {
+    background: #dbeafe;
+    color: #1e40af;
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 4rem 2rem;
+  }
+
+  .empty-icon {
+    font-size: 64px;
+    color: var(--text-secondary);
+    margin-bottom: 1rem;
+  }
+
+  .empty-state h3 {
+    margin: 0 0 0.5rem 0;
+    color: var(--text-primary);
+  }
+
+  .empty-state p {
+    margin: 0;
+    color: var(--text-secondary);
+  }
+
+  /* Modal Styles */
+  .modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  }
+
+  .modal-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+  }
+
+  .modal-content {
+    position: relative;
+    background: white;
+    border-radius: 8px;
+    max-width: 600px;
+    width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+    z-index: 1001;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2);
+  }
+
+  .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .modal-header h2 {
+    margin: 0;
+    font-size: 1.25rem;
+  }
+
+  .modal-body {
+    padding: 1.5rem;
+  }
+
+  .info-box {
+    background: #f0f9ff;
+    border: 1px solid #bae6fd;
+    border-radius: 6px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .info-box div {
+    margin-bottom: 0.5rem;
+  }
+
+  .info-box div:last-child {
+    margin-bottom: 0;
+  }
+
+  .form-group {
+    margin-bottom: 1.25rem;
+  }
+
+  .form-group label {
+    display: block;
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+  }
+
+  .required {
+    color: #ef4444;
+  }
+
+  .form-input {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 0.875rem;
+  }
+
+  .form-input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  }
+
+  .form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+  }
+
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border-color);
+  }
+
+  .btn-ghost {
+    background: transparent;
+    border: none;
+    padding: 0.5rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .btn-ghost:hover {
+    background: var(--surface-secondary);
+  }
+
+  .text-sm {
+    font-size: 0.875rem;
+  }
+
+  .font-semibold {
+    font-weight: 600;
+  }
+
+  @media (max-width: 768px) {
+    .page-header {
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .stats-grid {
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .filters-row {
+      grid-template-columns: 1fr;
+    }
+
+    .bulk-actions-bar {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 1rem;
+    }
+
+    .bulk-buttons {
+      flex-direction: column;
+    }
+
+    .form-row {
+      grid-template-columns: 1fr;
+    }
+
+    .tabs {
+      flex-wrap: wrap;
+    }
+  }
+</style>

@@ -1,0 +1,29 @@
+---
+/**
+ * Logout Page
+ * 
+ * Handles user logout by terminating the session and redirecting to login.
+ * 
+ * Requirement 1.5: WHEN a user logs out, 
+ * THE Authentication_Service SHALL terminate the authenticated session
+ */
+
+import { FirebaseAuthService } from '../services/auth/AuthService';
+import { auth, db } from '../services/firebase';
+
+// Initialize auth service
+const authService = new FirebaseAuthService(auth, db);
+
+try {
+  // Call logout method to terminate Firebase session
+  await authService.logout();
+} catch (error) {
+  console.error('Logout error:', error);
+}
+
+// Clear session cookie
+Astro.cookies.delete('session', { path: '/' });
+
+// Redirect to login page
+return Astro.redirect('/login');
+---
